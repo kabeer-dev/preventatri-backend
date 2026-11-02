@@ -17,7 +17,7 @@ module.exports.isEnvProd =
 
 module.exports.isEnvDev = config.get('env') === config.get('envVariables.dev');
 
-module.exports.corsOrigins = this.isEnvProd
+module.exports.corsOrigins = module.exports.isEnvProd
   ? config.get('allowedOrigins').split(',')
   : true;
 
