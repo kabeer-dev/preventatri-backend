@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.82",
+        "--isolated",
+        "--caps=network,storage,devtools",
+        "--output-dir=.claude/qa/output"
+      ]
+    }
+  }
+}

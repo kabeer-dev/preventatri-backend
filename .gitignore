@@ -1,0 +1,19 @@
+/node_modules
+.env
+/notes
+/playGround
+
+# Sentry Config File
+.sentryclirc
+
+/.idea/
+
+/optional-features
+
+/.vscode/mcp.json
+
+# Prisma 7 generated client
+/generated/
+
+/.claude/settings.local.json
+/.claude/qa/

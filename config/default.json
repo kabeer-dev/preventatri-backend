@@ -1,0 +1,66 @@
+{
+  "env": "development",
+  "port": "3001",
+  "envVariables": {
+    "dev": "development",
+    "staging": "staging",
+    "prod": "production",
+    "test": "test"
+  },
+  "tokenVariable": "x-auth-token",
+  "projectName": "PreventaTri",
+  "locale": "NEXTJS_LOCALE",
+  "windowSizeInMinutes": 1,
+  "maxRequestsAllowed": 60,
+  "trustProxyHops": 1,
+  "socket": "socketIo",
+  "maintenanceMode": false,
+  "platformHeader": "x-platform",
+  "monitoringProvider": "sentry",
+  "twilioAccountSid": "",
+  "twilioAuthToken": "",
+  "twilioPhoneNumber": "+123456789012",
+  "smsNotificationsEnabled": false,
+  "emailNotificationsEnabled": true,
+  "redisCluster": false,
+  "redisTls": false,
+  "defaultDevOtp": "11111111",
+  "secretsManager": {
+    "cacheTtlMs": 3600000
+  },
+  "database": {
+    "monitoring": {
+      "logQueries": false
+    },
+    "placeholderUrl": "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+  },
+  "databaseSslTimeoutOptions": "sslmode=verify-full&statement_timeout=15000&sslrootcert=certificate.pem",
+  "redisUsername": "",
+  "redisHost": "127.0.0.1",
+  "redisPort": "6379",
+  "redisPassword": "",
+  "bullPrefix": "preventatri",
+  "bullBoard": {
+    "enabled": true,
+    "username": "admin",
+    "password": ""
+  },
+  "hhax": {
+    "baseUrl": "https://app2sandbox.hhaexchange.com/Integration/ENT/V1.8/ws.asmx",
+    "appName": "",
+    "appSecret": "",
+    "appKey": "",
+    "organizationId": "",
+    "requestTimeoutMs": 30000,
+    "maxRetries": 3,
+    "retryDelayMs": 2000,
+    "maxPages": 500,
+    "lookbackDays": 3650,
+    "visitLookbackDays": 30,
+    "visitCursorStepDays": 14,
+    "maxCursorWindows": 60,
+    "syncCron": "0 4 * * *",
+    "syncTimezone": "America/New_York",
+    "syncLockTtlMs": 300000
+  }
+}

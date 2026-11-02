@@ -1,0 +1,80 @@
+{
+  "env": "NODE_ENV",
+  "port": "PORT",
+  "trustProxyHops": {
+    "__name": "TRUST_PROXY_HOPS",
+    "__format": "number"
+  },
+  "frontendURL": "FRONTEND_URL",
+  "allowedOrigins": "ALLOWED_ORIGINS",
+  "jwtPrivateKey": "JWT_SECRET",
+  "mongoUri": "MONGO_DB_CONNECT_STRING",
+  "databaseUrl": "DATABASE_URL",
+  "databaseSslTimeoutOptions": "DATABASE_SSL_TIMEOUT_OPTIONS",
+  "sentryDsn": "SENTRY_DSN",
+  "monitoringProvider": "MONITORING_PROVIDER",
+  "awsAccessKeyId": "AWS_ACCESS_KEY_ID",
+  "awsSecretAccessKey": "AWS_SECRET_ACCESS_KEY",
+  "awsBucket": "AWS_BUCKET",
+  "awsBucketRegion": "AWS_BUCKET_REGION",
+  "awsAccountId": "AWS_ACCOUNT_ID",
+  "awsRegion": "AWS_REGION",
+  "resendAPIKey": "RESEND_API_KEY",
+  "maintenanceMode": {
+    "__name": "MAINTENANCE_MODE",
+    "__format": "json"
+  },
+  "twilioAccountSid": "TWILIO_ACCOUNT_SID",
+  "twilioAuthToken": "TWILIO_AUTH_TOKEN",
+  "twilioPhoneNumber": "TWILIO_PHONE_NUMBER",
+  "smsNotificationsEnabled": {
+    "__name": "SMS_NOTIFICATIONS_ENABLED",
+    "__format": "json"
+  },
+  "emailNotificationsEnabled": {
+    "__name": "EMAIL_NOTIFICATIONS_ENABLED",
+    "__format": "json"
+  },
+  "sendgridApiKey": "SENDGRID_API_KEY",
+  "defaultDevOtp": "DEFAULT_DEV_OTP",
+  "redisHost": "REDIS_HOST",
+  "redisUsername": "REDIS_USERNAME",
+  "redisPort": "REDIS_PORT",
+  "redisPassword": "REDIS_PASSWORD",
+  "redisTls": {
+    "__name": "REDIS_TLS",
+    "__format": "json"
+  },
+  "redisCluster": {
+    "__name": "REDIS_CLUSTER",
+    "__format": "json"
+  },
+  "bullPrefix": "BULL_PREFIX",
+  "bullBoard": {
+    "enabled": {
+      "__name": "BULL_BOARD_ENABLED",
+      "__format": "json"
+    },
+    "username": "BULL_BOARD_USERNAME",
+    "password": "BULL_BOARD_PASSWORD"
+  },
+  "database": {
+    "monitoring": {
+      "logQueries": {
+        "__name": "DATABASE_LOG_QUERIES",
+        "__format": "json"
+      }
+    }
+  },
+  "hhax": {
+    "appName": "HHAX_APP_NAME",
+    "appSecret": "HHAX_APP_SECRET",
+    "appKey": "HHAX_APP_KEY",
+    "baseUrl": "HHAX_BASE_URL",
+    "organizationId": "HHAX_ORGANIZATION_ID",
+    "visitLookbackDays": {
+      "__name": "HHAX_VISIT_LOOKBACK_DAYS",
+      "__format": "number"
+    }
+  }
+}

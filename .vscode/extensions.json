@@ -1,0 +1,25 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint", // ESLint for linting JavaScript/TypeScript
+    "esbenp.prettier-vscode", // Prettier for code formatting
+    "bradlc.vscode-tailwindcss", // Tailwind CSS IntelliSense
+    "dsznajder.es7-react-js-snippets", // React/Redux snippets
+    "formulahendry.auto-close-tag", // Auto Close Tag for JSX/HTML
+    "formulahendry.auto-rename-tag", // Auto Rename Tag for JSX/HTML
+    "ms-vscode.vscode-typescript-next", // TypeScript features
+    "streetsidesoftware.code-spell-checker", // Spell checker for catching typos
+    "GitHub.copilot", // AI-powered code completion and suggestions
+    "EditorConfig.EditorConfig", // Maintains consistent coding styles across editors
+    "aaron-bond.better-comments", // Improves comment readability with highlights
+    "naumovs.color-highlight", // Highlights colors in code for better visibility
+    "mikestead.dotenv", // Syntax support for .env files
+    "usernamehw.errorlens", // Enhances error messages in the editor
+    "mhutchie.git-graph", // Visualizes Git history in a graph format
+    "wix.vscode-import-cost", // Displays the size of imported modules
+    "PKief.material-icon-theme", // Adds material design icons (since it was in the settings, though not critical)
+    "christian-kohler.npm-intellisense", // Autocompletes npm package names
+    "SocketSecurity.vscode-socket-security", // Security insights for dependencies
+    "stivo.tailwind-fold", // Collapses Tailwind CSS classes for readability
+    "Gruntfuggly.todo-tree" // Highlights and organizes TODO comments
+  ]
+}

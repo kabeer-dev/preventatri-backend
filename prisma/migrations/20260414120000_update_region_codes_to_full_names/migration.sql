@@ -1,0 +1,9 @@
+-- Update region codes from abbreviated to full names to match generateRegionCode() output
+UPDATE "regions" SET code = 'SOUTHEAST_PENNSYLVANIA' WHERE code = 'SOUTHEAST_PA';
+UPDATE "regions" SET code = 'SOUTH_CENTRAL_PENNSYLVANIA' WHERE code = 'SOUTH_CENTRAL_PA';
+UPDATE "regions" SET code = 'NORTHEAST_PENNSYLVANIA' WHERE code = 'NORTHEAST_PA';
+UPDATE "regions" SET code = 'LEHIGH_VALLEY_EAST_PENNSYLVANIA' WHERE code = 'LEHIGH_VALLEY_PA';
+UPDATE "regions" SET code = 'NORTH_CENTRAL_PENNSYLVANIA' WHERE code = 'NORTH_CENTRAL_PA';
+UPDATE "regions" SET code = 'WESTERN_PENNSYLVANIA' WHERE code = 'WESTERN_PA';
+UPDATE "regions" SET code = 'NORTHWEST_PENNSYLVANIA' WHERE code = 'NORTHWEST_PA';
+UPDATE "regions" SET code = 'SOUTHWEST_LAUREL_HIGHLANDS' WHERE code = 'SOUTHWEST_LAUREL_PA';

@@ -1,0 +1,8 @@
+{{> header eyebrow="Account security" title="Your account is locked" pillTone=tones.critical pillLabel="Locked out"}}
+<p style="{{p1Style}}">We locked your account after several failed sign-in attempts. Unlock it to regain access.</p>
+
+{{> button url=actionButton.url label=actionButton.label}}
+
+{{> severityBanner tone=tones.critical html=warningText}}
+
+{{> footer text="This is an automated security message. Please do not reply."}}

@@ -1,0 +1,22 @@
+{
+  "frontendURL": "http://localhost:3000",
+  "hostURL": "http://localhost:3001",
+  "env": "test",
+  "port": "3001",
+  "jwtPrivateKey": "JWT_SECRET",
+  "mongoUri": "mongodb://127.0.0.1:27017/boilerplate",
+  "databaseUrl": "postgresql://postgres@localhost:5432/preventa_tri",
+  "sentryDsn": "test-sentry-dsn",
+  "awsAccessKey": "test-access-key",
+  "awsSecretAccessKey": "test-secret-key",
+  "awsBucket": "test-bucket",
+  "awsBucketRegion": "us-east-1",
+  "defaultEmailAddress": "noreply@test.com",
+  "defaultEmailName": "Test App",
+  "resendAPIKey": "test-resend-key",
+  "database": {
+    "monitoring": {
+      "logQueries": false
+    }
+  }
+}

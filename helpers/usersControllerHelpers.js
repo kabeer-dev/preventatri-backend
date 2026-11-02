@@ -1,0 +1,541 @@
+const {AUDIT_OPERATIONS} = require('../constants/auditConstants');
+const {TOKEN_TYPES} = require('../constants/generalConstant');
+
+const {
+  DEFAULT_WORKING_HOURS,
+  DEFAULT_TIME_ZONE_KEY,
+  ORGANIZATION_STATUSES,
+} = require('../constants/organizationsConstants');
+
+const {
+  AUDIT_ROUTE_CONFIG,
+  INVITE_AUDIT_CONFIG_BY_USER_TYPE,
+} = require('../constants/requestLoggerConstants');
+
+const {INVITE_BLOCK_REASONS} = require('../constants/usersConstants');
+const {UsersErrorsFactories, GeneralErrorsFactories} = require('../factories');
+const AuditServices = require('../services/auditServices');
+const EscalationPolicyServices = require('../services/escalationPolicyServices');
+const OrganizationInvitationsServices = require('../services/organizationInvitationsServices');
+const OrganizationsServices = require('../services/organizationsServices');
+const PermissionsServices = require('../services/permissionsServices');
+const SecurityServices = require('../services/securityServices');
+const UsersServices = require('../services/usersServices');
+
+const {
+  isDocumentDuplicationError,
+  getLocaleFromCookie,
+  safeMerge,
+  getExistingSecretKeys,
+} = require('../utils');
+const actions = require('../utils/actions');
+const {getCurrentDateTime, getCurrentTime} = require('../utils/dateUtils');
+const {wrapWithPrismaTransaction} = require('../utils/prismaTransactionUtils');
+const {getRequestContext} = require('../utils/requestContext');
+
+const {
+  enrichUserObject,
+  getInviteBlockReason,
+  getInvitationExpiry,
+  isInvitationActive,
+} = require('../utils/userHelpers');
+
+module.exports = class UsersControllerHelpers {
+  /**
+   * Add user to system — handles all user creation/reuse scenarios:
+   *
+   * Scenario A: New user, new org → create user + UserOrganization + Permission
+   * Scenario B: Existing user, new org → reuse user + create UserOrganization + Permission
+   * Scenario C: Existing user, SAME org (recreated role after deletion) →
+   *             reuse user + update UserOrganization role + recalculate Permission
+   *
+   * @param {Object} params - Parameters
+   * @param {Object} [params.dataToCreateOrUpdate] - Data for creating a new user
+   * @param {Object} [params.existingUserPrismaDoc] - Existing user record (if found)
+   * @param {string} [params.organizationIdToAddTo] - Target organization ID
+   * @param {string} params.role - Role to assign (e.g., 'nurse', 'caregiver', 'case_manager')
+   * @param {boolean} [params.isExistingOrgMember=false] - True if user already has UserOrganization in this org
+   * @param {Object} [params.tx] - Transaction context
+   */
+  static async addUserToSystem({
+    dataToCreateOrUpdate = null,
+    existingUserPrismaDoc = null,
+    organizationIdToAddTo = null,
+    organizationName = null,
+    role,
+    isExistingOrgMember = false,
+    isPendingInvitation = false,
+    pendingProfileStatus = null,
+    tx = null,
+  }) {
+    // If tx is provided, execute directly in that transaction context
+    // Otherwise, create a new transaction
+    if (tx) {
+      return await this._addUserToSystemInTransaction({
+        dataToCreateOrUpdate,
+        existingUserPrismaDoc,
+        organizationIdToAddTo,
+        organizationName,
+        role,
+        isExistingOrgMember,
+        isPendingInvitation,
+        pendingProfileStatus,
+        tx,
+      });
+    }
+
+    return await wrapWithPrismaTransaction({
+      fn: async (txContext) => {
+        return await this._addUserToSystemInTransaction({
+          dataToCreateOrUpdate,
+          existingUserPrismaDoc,
+          organizationIdToAddTo,
+          organizationName,
+          role,
+          isExistingOrgMember,
+          isPendingInvitation,
+          pendingProfileStatus,
+          tx: txContext,
+        });
+      },
+    });
+  }
+
+  // Internal helper to add user within a transaction context
+  static async _addUserToSystemInTransaction({
+    dataToCreateOrUpdate = null,
+    existingUserPrismaDoc = null,
+    organizationIdToAddTo = null,
+    organizationName = null,
+    role,
+    isExistingOrgMember = false,
+    isPendingInvitation = false,
+    pendingProfileStatus = null,
+    tx,
+  }) {
+    let user = existingUserPrismaDoc;
+
+    if (!existingUserPrismaDoc) {
+      const userDataWithOrg = Object.assign({}, dataToCreateOrUpdate, {
+        primaryOrgId: organizationIdToAddTo,
+      });
+
+      const {user: createdUser, error} = await UsersServices.createUser({
+        data: userDataWithOrg,
+        optionsInclude: ['userOrganizations'],
+        tx,
+      });
+
+      if (isDocumentDuplicationError({error})) {
+        throw UsersErrorsFactories.userAlreadyRegisteredErr();
+      }
+
+      if (error) throw error;
+
+      user = createdUser;
+
+      const {error: securityError} =
+        await SecurityServices.createSecuritySettings({userId: user.id, tx});
+
+      if (securityError) throw securityError;
+    }
+
+    // Ensure user has id (UUID auto-generated by Prisma)
+    if (!user?.id) {
+      throw UsersErrorsFactories.userCreationFailedErr();
+    }
+
+    if (!organizationIdToAddTo) {
+      const {error: organizationError, organization: createdOrganization} =
+        await UsersServices.createUserOrganization({
+          organizationData: {
+            organizationName:
+              organizationName || `${user.firstName}'s Organization`,
+            creatorId: user.id,
+            workingHours: DEFAULT_WORKING_HOURS,
+            timeZone: DEFAULT_TIME_ZONE_KEY,
+
+            // Nobody in it can log in until it is approved.
+            status: ORGANIZATION_STATUSES.PENDING.value,
+          },
+          tx,
+        });
+
+      if (organizationError) throw organizationError;
+
+      organizationIdToAddTo = createdOrganization?.id;
+
+      // Every new organization starts with the default RED + YELLOW escalation
+      // flow, so its admin sees (and flags follow) a complete flow from day one.
+      const {error: escalationPolicyError} =
+        await EscalationPolicyServices.createDefaultPolicies({
+          organizationId: organizationIdToAddTo,
+          tx,
+        });
+
+      if (escalationPolicyError) throw escalationPolicyError;
+
+      // Update user's primaryOrgId with the newly created organization
+      user = await tx.user.update({
+        where: {id: user.id},
+        data: {primaryOrgId: organizationIdToAddTo},
+      });
+    }
+
+    if (isExistingOrgMember) {
+      // ── Scenario C: User already in this org → update role and recalculate permissions ──
+      // This happens when re-inviting a deleted role profile (e.g., nurse was deleted, re-invited as nurse)
+      // or when changing a user's role (e.g., from caregiver to nurse)
+
+      // Find existing UserOrganization and update the role
+      const existingUserOrg = await tx.userOrganization.findFirst({
+        where: {userId: user.id, organizationId: organizationIdToAddTo},
+      });
+
+      if (existingUserOrg) {
+        await tx.userOrganization.update({
+          where: {id: existingUserOrg.id},
+          data: {role},
+        });
+      }
+
+      // Recalculate permissions for the new role
+      const {error: permissionsError} =
+        await PermissionsServices.resetPermissionsForRole({
+          userId: user.id,
+          organizationId: organizationIdToAddTo,
+          role,
+          tx,
+        });
+
+      if (permissionsError) throw permissionsError;
+    } else if (
+      existingUserPrismaDoc &&
+      (await UsersControllerHelpers._restoreRemovedMembership({
+        userId: user.id,
+        organizationId: organizationIdToAddTo,
+        role,
+        isPendingInvitation,
+        pendingProfileStatus,
+        tx,
+      }))
+    ) {
+      // ── Scenario D: Person was removed from this org earlier → membership and
+      // permissions come back instead of duplicating the unique rows ──
+    } else {
+      // ── Scenario A/B: New org membership → create UserOrganization + Permission ──
+
+      // Create initial permissions for user in organization
+      const {error: permissionsError} =
+        await PermissionsServices.createInitialPermissions({
+          userId: user?.id,
+          organizationId: organizationIdToAddTo,
+          role,
+          tx,
+        });
+
+      if (permissionsError) throw permissionsError;
+
+      // Create UserOrganization junction record
+      // NOTE: In MongoDB, organizations were embedded directly in User document
+      // In Prisma/PostgreSQL, we need explicit junction table (UserOrganization) for 1:M relationships
+      // This prevents data duplication and ensures referential integrity
+      await tx.userOrganization.create({
+        data: {
+          userId: user.id,
+          organizationId: organizationIdToAddTo,
+          role,
+          isActive: !isPendingInvitation,
+          invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
+          pendingProfileStatus: isPendingInvitation
+            ? pendingProfileStatus
+            : null,
+        },
+      });
+    }
+
+    // Fetch updated user with organizations and permissions for full enrichment
+    const updatedUser = await tx.user.findUnique({
+      where: {id: user.id},
+      include: {
+        userOrganizations: {
+          include: {organization: true},
+        },
+        permissions: true,
+      },
+    });
+
+    return enrichUserObject({user: updatedUser});
+  }
+
+  /**
+   * A person removed from an organization keeps their soft-deleted membership
+   * and permission rows, and both are unique per user and organization, so
+   * adding them back restores those rows with the new role's permissions.
+   *
+   * @returns {Promise<boolean>} Whether a removed membership was restored.
+   */
+  static async _restoreRemovedMembership({
+    userId,
+    organizationId,
+    role,
+    isPendingInvitation,
+    pendingProfileStatus,
+    tx,
+  }) {
+    const {count} = await tx.userOrganization.updateMany({
+      includeDeleted: true,
+      where: {userId, organizationId, isDeleted: {not: null}},
+      data: {
+        isDeleted: null,
+        role,
+        isActive: !isPendingInvitation,
+        invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
+        invitationSecret: null,
+        pendingProfileStatus: isPendingInvitation ? pendingProfileStatus : null,
+      },
+    });
+
+    if (count === 0) return false;
+
+    await tx.permission.updateMany({
+      includeDeleted: true,
+      where: {userId, organizationId, isDeleted: {not: null}},
+      data: {isDeleted: null},
+    });
+
+    const {error} = await PermissionsServices.resetPermissionsForRole({
+      userId,
+      organizationId,
+      role,
+      tx,
+    });
+
+    if (error) throw error;
+
+    return true;
+  }
+
+  // Send Verification Email
+
+  static async sendVerificationEmail({user}) {
+    const req = getRequestContext();
+
+    const generatedToken = user.generateToken({
+      type: TOKEN_TYPES.verification.value,
+    });
+
+    // Fetch existing secretKeys and merge before update to preserve all keys
+    // Note: generateToken modifies user.secretKeys in-memory, extracting only the newly generated key
+    const secretKey = user.secretKeys?.verification;
+
+    const existingSecretKeys = getExistingSecretKeys({
+      secretKeys: user.secretKeys,
+    });
+
+    const updatedSecretKeys = safeMerge({
+      originalObj: existingSecretKeys,
+      newObj: {verification: secretKey},
+    });
+
+    const {success: updateSuccess, error: updateError} =
+      await UsersServices.updateOne({
+        id: user.id,
+        data: {
+          secretKeys: updatedSecretKeys,
+        },
+      });
+
+    // CRITICAL: If database update fails, prevent sending email with invalid token
+    if (!updateSuccess || updateError) {
+      throw UsersErrorsFactories.verificationTokenSaveFailedErr();
+    }
+
+    await actions.users.verifyUser({
+      user,
+      locale: getLocaleFromCookie({req}),
+      token: generatedToken,
+    });
+  }
+
+  /**
+   * Point the audit log at the invited profile instead of the User row. The
+   * global logger resolves model/resource from the URL segment ("users"), but
+   * the invite controllers report their profile id as the created resource.
+   */
+  static applyInviteAuditTarget({req, userType}) {
+    // Absent when the global logger bailed out for this request.
+    if (!req.extra.audit) return;
+
+    const auditConfig = INVITE_AUDIT_CONFIG_BY_USER_TYPE[userType];
+
+    req.extra.audit.model = auditConfig.model;
+    req.extra.audit.resource = auditConfig.resource;
+  }
+
+  /**
+   * Invites a person who already has a record: an import, or a resend.
+   *
+   * A person who may not be invited is returned, not thrown, so one caller can
+   * answer with an error and the bulk caller can skip the row.
+   * @returns {{sent: boolean, reason?: Object, expiresAt?: string}}
+   */
+  static async inviteExistingUser({
+    user,
+    role,
+    invitingUser,
+    hasEmailConflict,
+    organizationId,
+  }) {
+    const reason = getInviteBlockReason({
+      user,
+      role,
+      hasEmailConflict,
+      organizationId,
+    });
+
+    if (reason) return {sent: false, reason};
+
+    // Read before sending: generating the token rewrites user.secretKeys.
+    const previousSentAt = user.secretKeys?.invitationSentAt;
+
+    if (isInvitationActive({sentAt: previousSentAt})) {
+      return {
+        sent: false,
+        reason: INVITE_BLOCK_REASONS.INVITATION_STILL_ACTIVE,
+        expiresAt: getInvitationExpiry({sentAt: previousSentAt}).toISO(),
+      };
+    }
+
+    await UsersControllerHelpers.sendInvitationEmail({
+      user,
+      invitingUser,
+      role,
+    });
+
+    await AuditServices.logAudit({
+      action: previousSentAt
+        ? AUDIT_OPERATIONS.INVITE_RESENT.value
+        : AUDIT_OPERATIONS.INVITE.value,
+      resourceName: AUDIT_ROUTE_CONFIG.users.resource,
+      resourceId: user.id,
+      context: {invitedEmail: user.email, role},
+    });
+
+    return {sent: true};
+  }
+
+  static async sendInvitationEmail({user, invitingUser, role}) {
+    const req = getRequestContext();
+
+    const generatedToken = user.generateToken({
+      type: TOKEN_TYPES.invitation.value,
+      payload: {
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+      },
+    });
+
+    // Fetch existing secretKeys and merge before update to preserve all keys
+    // Note: generateToken modifies user.secretKeys in-memory, extracting only the newly generated key
+    const secretKey = user.secretKeys?.invitation;
+
+    const existingSecretKeys = getExistingSecretKeys({
+      secretKeys: user.secretKeys,
+    });
+
+    const updatedSecretKeys = safeMerge({
+      originalObj: existingSecretKeys,
+      newObj: {
+        invitation: secretKey,
+        invitationSentAt: getCurrentDateTime(),
+      },
+    });
+
+    const {success: updateSuccess, error: updateError} =
+      await UsersServices.updateOne({
+        id: user.id,
+        data: {
+          secretKeys: updatedSecretKeys,
+          invitationSentAt: getCurrentTime(),
+          invitedByUserId: req?.extra?.jwtToken?.user?.id || null,
+        },
+      });
+
+    // CRITICAL: If database update fails, prevent sending email with invalid token
+    if (!updateSuccess || updateError) {
+      throw UsersErrorsFactories.invitationTokenSaveFailedErr();
+    }
+
+    await actions.users.inviteUser({
+      user,
+      locale: getLocaleFromCookie({req}),
+      token: generatedToken,
+      invitingUser,
+      role,
+    });
+  }
+
+  /**
+   * A person who already uses their account is invited into the organization
+   * and accepts after logging in. The set-password invitation would let the
+   * link change that account's password, so only new or not-yet-accepted
+   * accounts get it.
+   */
+  static async sendInvitation({
+    user,
+    existingUser,
+    invitingUser,
+    role,
+    organizationId,
+  }) {
+    if (!existingUser?.isVerified) {
+      return UsersControllerHelpers.sendInvitationEmail({
+        user,
+        invitingUser,
+        role,
+      });
+    }
+
+    const {success, token, error} =
+      await OrganizationInvitationsServices.issueInvitation({
+        userId: user.id,
+        organizationId,
+      });
+
+    if (!success) throw error;
+
+    if (!token) return;
+
+    const req = getRequestContext();
+
+    const {
+      success: organizationSuccess,
+      doc: organization,
+      error: organizationError,
+    } = await OrganizationsServices.getOrganizationById({id: organizationId});
+
+    // Without the name the email would read "Invitation to join undefined".
+    if (!organizationSuccess || !organization) {
+      throw (
+        organizationError ||
+        GeneralErrorsFactories.internalErr({
+          customMessage: 'Could not load the organization for the invitation',
+        })
+      );
+    }
+
+    await actions.users.organizationInvitation({
+      user,
+      locale: getLocaleFromCookie({req}),
+      token,
+      invitingUser,
+      role,
+      organizationName: organization.organizationName,
+    });
+  }
+};

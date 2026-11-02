@@ -1,0 +1,1836 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id         String   @id @default(uuid())
+  firstName  String?
+  lastName   String?
+  email      String   @db.VarChar(255)
+  phoneNo    String?  @db.VarChar(20)
+  password   String?  @db.VarChar(2048)
+  address    String?  @db.VarChar(500)
+  city       String?  @db.VarChar(100)
+  zipCode    String?  @map("zip_code") @db.VarChar(10)
+  state      String?  @db.VarChar(50)
+  language   Language @default(en)
+  isVerified Boolean  @default(false)
+
+  otps       Json? @default("{\"email\":null,\"phone\":null}")
+  secretKeys Json? @default("{\"auth\":null,\"otp\":null,\"verification\":null,\"invitation\":null,\"loginReset\":null,\"accountUnlock\":null}") @map("secret_keys")
+
+  // Stored file reference ({url, key}) for the S3 object, same shape used by
+  // emergency flag images. url is never served as-is -- signFileRefs re-signs
+  // it on the way out.
+  profileImage Json? @map("profile_image")
+
+  // HHAeXchange's own address for the person. The login email differs from it
+  // while the address is shared, or once an admin typed one (sync then keeps it).
+  hhaEmail        String? @map("hha_email") @db.VarChar(255)
+  isEmailAdminSet Boolean @default(false) @map("is_email_admin_set")
+
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedAt            DateTime? @map("locked_at")
+
+  // Last invitation sent; cleared on revoke, kept after acceptance. Plain
+  // columns because the roster must not read secretKeys.
+  invitationSentAt     DateTime? @map("invitation_sent_at")
+  invitedByUserId      String?   @map("invited_by_user_id")
+  invitationAcceptedAt DateTime? @map("invitation_accepted_at")
+
+  isDeleted DateTime? @map("deleted_at")
+
+  primaryOrgId        String?       @map("primary_org_id")
+  primaryOrganization Organization? @relation("primaryOrg", fields: [primaryOrgId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NOTE: Compound unique indexes created via migrations:
+  // - unique_email_per_org: (email, primary_org_id, deleted_at)
+  //   Allows email reuse if: different organization OR user is soft-deleted
+  // Note: Prisma v5.22 supports partial indexes via the 'where' clause in @@index directive
+
+  permissions                Permission[]
+  userOrganizations          UserOrganization[]
+  createdOrganizations       Organization[]                     @relation("creator")
+  nurseProfiles              NurseProfile[]
+  caregiverProfiles          CaregiverProfile[]
+  caseManagerProfiles        CaseManagerProfile[]
+  checklistTemplates         ChecklistTemplate[]                @relation("checklistTemplateCreator")
+  assignedSubmissions        ChecklistSubmission[]              @relation("submissionAssignee")
+  submissionFlags            SubmissionFlag[]                   @relation("submissionFlagSubmitter")
+  voidedSubmissionFlags      SubmissionFlag[]                   @relation("submissionFlagVoider")
+  createdAssignments         ChecklistAssignment[]              @relation("checklistAssignmentAssigner")
+  completedFollowUpTasks     FollowUpTask[]                     @relation("FollowUpTaskCompletedByUser")
+  completedSupervisoryVisits SupervisoryVisit[]                 @relation("supervisoryVisitCompleter")
+  createdFollowUpTasks       FollowUpTask[]                     @relation("FollowUpTaskCreatedByUser")
+  cancelledFollowUpTasks     FollowUpTask[]                     @relation("FollowUpTaskCancelledByUser")
+  followUpTaskEvents         FollowUpTaskEvent[]                @relation("followUpTaskEventActor")
+  createdSupervisoryVisits   SupervisoryVisit[]                 @relation("supervisoryVisitCreator")
+  reviewedSupervisoryVisits  SupervisoryVisit[]                 @relation("supervisoryVisitReviewer")
+  cancelledSupervisoryVisits SupervisoryVisit[]                 @relation("supervisoryVisitCanceller")
+  supervisoryVisitEvents     SupervisoryVisitEvent[]            @relation("supervisoryVisitEventActor")
+  escalationResponses        SubmissionFlagEscalationResponse[] @relation("escalationResponseSubmitter")
+  createdEscalationPolicies  EscalationPolicy[]                 @relation("escalationPolicyCreator")
+  notifications              Notification[]                     @relation("notificationRecipient")
+  performedNotifications     Notification[]                     @relation("notificationPerformer")
+  sessions                   UserSession[]
+  security                   Security?
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secretKey String   @map("secret_key")
+  userAgent String?  @map("user_agent")
+  ipAddress String?  @map("ip_address")
+  platform  String?
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  // The organization this login works in, set by the organization switcher.
+  // Empty means the person's main organization (users.primaryOrgId).
+  activeOrganizationId String? @map("active_organization_id")
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+// Per-user security preferences. Replaces the old global ENABLED_OTPs
+// constant with a per-user setting; otpMethods controls which
+// channels (email/phone) are required during the OTP verification flow.
+model Security {
+  id         String   @id @default(uuid())
+  userId     String   @unique @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NOTE: A DB CHECK constraint (securities_otp_methods_at_least_one_check),
+  // added via migration, requires at least one of email/phone to be true.
+  otpMethods Json     @default("{\"email\":true,\"phone\":false}") @map("otp_methods")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("securities")
+}
+
+model Organization {
+  id                                String                             @id @default(uuid())
+  organizationName                  String
+  creatorId                         String
+  workingHours                      Json                               @default("{\"monday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"tuesday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"wednesday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"thursday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"friday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"saturday\":{\"enabled\":true,\"startTime\":\"09:00\",\"endTime\":\"17:00\"},\"sunday\":{\"enabled\":false,\"startTime\":\"09:00\",\"endTime\":\"17:00\"}}") @map("working_hours")
+  timeZone                          OrganizationTimeZone               @default(EASTERN) @map("time_zone")
+
+  // A new organization from signup starts pending and nobody in it can log in
+  // until it is approved. Every other organization is active.
+  status                            OrganizationStatus                 @default(active)
+
+  // When the super admin last changed the status, and the reason given for a
+  // rejection or suspension.
+  statusChangedAt                   DateTime?                          @map("status_changed_at")
+  statusReason                      String?                            @map("status_reason") @db.VarChar(1000)
+  isDeleted                         DateTime?                          @map("deleted_at")
+  createdAt                         DateTime                           @default(now())
+  updatedAt                         DateTime                           @updatedAt
+  creator                           User                               @relation("creator", fields: [creatorId], references: [id], onDelete: Cascade)
+  usersPrimaryOrg                   User[]                             @relation("primaryOrg")
+  permissions                       Permission[]
+  userOrganizations                 UserOrganization[]
+  nurseProfiles                     NurseProfile[]
+  regions                           Region[]
+  regionalNurses                    NurseRegion[]
+  regionDefaultNurses               RegionDefaultNurse[]
+  counties                          County[]
+  caregiverProfiles                 CaregiverProfile[]
+  caregiverPatients                 CaregiverPatient[]
+  caseManagerPatients               CaseManagerPatient[]
+  patients                          Patient[]
+  caseManagerProfiles               CaseManagerProfile[]
+  caseManagerRegions                CaseManagerRegion[]
+  checklistTemplates                ChecklistTemplate[]
+  checklistSubmissions              ChecklistSubmission[]
+  checklistAssignments              ChecklistAssignment[]
+  submissionFlags                   SubmissionFlag[]
+  supervisoryVisits                 SupervisoryVisit[]
+  followUpTasks                     FollowUpTask[]
+  submissionFlagEscalations         SubmissionFlagEscalation[]
+  submissionFlagEscalationResponses SubmissionFlagEscalationResponse[]
+  escalationPolicies                EscalationPolicy[]
+  notifications                     Notification[]
+  hhaVisits                         HhaVisit[]
+  hhaSyncRuns                       HhaSyncRun[]
+  hhaSyncExceptions                 HhaSyncException[]
+  hhaSyncChanges                    HhaSyncChange[]
+  patientHhaCoordinators            PatientHhaCoordinator[]
+  hhaPendingImports                 HhaPendingImport[]
+
+  @@map("organizations")
+}
+
+model UserOrganization {
+  id String @id @default(uuid())
+
+  userId         String
+  organizationId String
+  role           SystemRole @default(admin)
+  isActive       Boolean    @default(true)
+
+  // isActive false with an invitationSentAt is an invitation the person has not
+  // accepted. It grants no access and the organization is not offered to them;
+  // the profile waits inactive and the status the admin chose is kept in
+  // pendingProfileStatus until they accept.
+  invitationSentAt     DateTime?
+  invitationSecret     String?
+  pendingProfileStatus String?
+
+  isDeleted DateTime? @map("deleted_at")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  escalationsAsCurrentAssignee        SubmissionFlagEscalation[]      @relation("escalationCurrentAssignee")
+  escalationsAsAcknowledgedBy          SubmissionFlagEscalation[]      @relation("escalationAcknowledgedBy")
+  escalationEventsAsAssignee           SubmissionFlagEscalationEvent[] @relation("escalationEventAssignee")
+  followUpTasksAsAssignee              FollowUpTask[]                  @relation("followUpTaskAssignee")
+  followUpTaskEventsAsFromAssignee     FollowUpTaskEvent[]             @relation("followUpTaskEventFromAssignee")
+  followUpTaskEventsAsToAssignee       FollowUpTaskEvent[]             @relation("followUpTaskEventToAssignee")
+  supervisoryVisitsAsAssignee          SupervisoryVisit[]              @relation("supervisoryVisitAssignee")
+  supervisoryVisitCaregiverEntries     SupervisoryVisitCaregiver[]     @relation("supervisoryVisitCaregiver")
+  supervisoryVisitEventsAsFromAssignee SupervisoryVisitEvent[]         @relation("supervisoryVisitEventFromAssignee")
+  supervisoryVisitEventsAsToAssignee   SupervisoryVisitEvent[]         @relation("supervisoryVisitEventToAssignee")
+
+  @@unique([userId, organizationId], map: "unique_user_org")
+  @@map("user_organizations")
+}
+
+model Permission {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  levels         Json         @default("{\"users\":{\"view\":[],\"update\":[]},\"region\":{\"view\":[],\"update\":[]}}") @map("levels")
+  isDeleted      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId], map: "unique_user_org_permission")
+  @@map("permissions")
+}
+
+model Idempotency {
+  id             String   @id @default(uuid())
+  idempotencyKey String   @unique @map("idempotency_key")
+  status         String   @default("processing")
+  response       Json?    @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("idempotency")
+}
+
+model NurseProfile {
+  id             String @id @default(uuid())
+  userId         String
+  organizationId String
+
+  // Professional Information. licenseNumber and licenseExpirationDate are
+  // nullable because HHAeXchange publishes the licence number only sometimes
+  // and an expiration date never; an imported nurse gets them filled in by an
+  // admin. The invite form still requires both on a manual nurse.
+  professionalRole      ProfessionalRole
+  licenseNumber         String?          @db.VarChar(50)
+  licenseState          String           @default("PA") @db.VarChar(2)
+  licenseExpirationDate DateTime?
+  status                NurseStatus      @default(ACTIVE)
+
+  // Optional Professional Information
+  npi                    String?   @db.VarChar(10)
+  onCallIndicator        Boolean   @default(false)
+  preferredContactMethod String?   @db.VarChar(50)
+  notes                  String?   @db.Text
+  joiningDate            DateTime?
+
+  isDeleted DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // -- HHAeXchange one-way sync ----------------------------------------------
+  // Mirrors the quadruple on CaregiverProfile. hhaNurseId is the HHAeXchange
+  // NurseID, which is the SAME number as the CaregiverID under which the nurse
+  // also appears in the caregiver change feed; it is the only key sync matches
+  // on. hhaModifiedDate is the feed's ModifiedDate, stored for display only --
+  // hhaSyncHash gates writes.
+  source          NurseSource @default(MANUAL)
+  hhaNurseId      String?     @map("hha_nurse_id") @db.VarChar(32)
+  hhaSyncHash     String?     @map("hha_sync_hash") @db.VarChar(64)
+  hhaLastSyncedAt DateTime?   @map("hha_last_synced_at")
+  hhaModifiedDate DateTime?   @map("hha_modified_date")
+
+  // True while the HHA address resolves to a region; sync then owns the PRIMARY
+  // regions and admins cannot edit them.
+  isPrimaryRegionHhaManaged Boolean @default(false) @map("is_primary_region_hha_managed")
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  regionalNurses      NurseRegion[]
+  regionDefaultNurses RegionDefaultNurse[]
+
+  primaryForPatients    Patient[] @relation("PatientPrimaryNurse")
+  secondaryForPatients  Patient[] @relation("PatientSecondaryNurse")
+  hhaPendingForPatients Patient[] @relation("PatientHhaPendingNurse")
+
+  // NOTE: Partial unique index created via migration (not supported in Prisma schema syntax):
+  // CREATE UNIQUE INDEX "unique_nurse_profile_per_org" ON "nurse_profiles"("userId", "organizationId") WHERE "deleted_at" IS NULL;
+  // This allows recreating nurse profiles after soft-deletion.
+  // WARNING: Do NOT use findUnique with {userId, organizationId} as Prisma assumes global uniqueness.
+  // Always use findFirst/findMany with explicit isDeleted filtering.
+  //
+  // unique_hha_nurse_per_org deliberately SPANS soft-deleted rows (see the
+  // migration) so archiving a nurse still active in HHAeXchange cannot make
+  // the next run insert a duplicate.
+  @@unique([organizationId, hhaNurseId], map: "unique_hha_nurse_per_org")
+  @@index([organizationId, source], map: "idx_nurse_profiles_org_source")
+  @@map("nurse_profiles")
+}
+
+// Region model for PA-based coverage groups
+model Region {
+  id             String    @id @default(uuid())
+  name           String    @db.VarChar(100)
+  code           String    @db.VarChar(50)
+  organizationId String
+  isActive       Boolean   @default(true)
+  isDeleted      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regionalNurses            NurseRegion[]
+  regionDefaultNurses       RegionDefaultNurse[]
+  counties                  County[]
+  caseManagerRegions        CaseManagerRegion[]
+  submissionFlagEscalations SubmissionFlagEscalation[]
+
+  // NOTE: Prisma 5.22 does NOT support partial unique indexes in schema syntax.
+  // Database constraint exists as:
+  // CREATE UNIQUE INDEX "unique_region_code_per_org" ON "regions"("code", "organizationId") WHERE "deleted_at" IS NULL
+  // This allows region codes to be reused after soft deletion.
+  // WARNING: Do NOT use findUnique with {code, organizationId} as it assumes global uniqueness!
+  // Always use explicit findMany + filtering queries that include "WHERE isDeleted IS NULL"
+  // See regionsServices.getRegionByCode() for proper implementation.
+  @@map("regions")
+}
+
+// Junction table for many-to-many Nurse <-> Region relationship
+// organizationId is denormalized here for organizational scoping consistency
+// All dependent models of Organization have organizationId for efficient filtering
+model NurseRegion {
+  id              String          @id @default(uuid())
+  nurseProfileId  String
+  regionId        String
+  organizationId  String
+  nurseRegionRole NurseRegionRole
+  assignedAt      DateTime        @default(now())
+
+  nurseProfile NurseProfile @relation(fields: [nurseProfileId], references: [id], onDelete: Cascade)
+  region       Region       @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([nurseProfileId, regionId], map: "unique_nurse_region_assignment")
+  @@index([organizationId, regionId], map: "idx_nurse_regions_org_region")
+  @@map("nurse_regions")
+}
+
+// Junction table for a Region's DEFAULT primary/secondary nurse roster.
+// Deliberately SEPARATE from NurseRegion (a nurse's own region coverage) so
+// that editing a region's nurses (Region page) and editing a nurse's regions
+// (Nurse page) never rewrite each other. Same shape/semantics as NurseRegion;
+// this table is the source of truth for region default nurses (region display,
+// region summary counts, GET /regions/:id/nurses, and escalation resolution).
+model RegionDefaultNurse {
+  id              String          @id @default(uuid())
+  nurseProfileId  String
+  regionId        String
+  organizationId  String
+  nurseRegionRole NurseRegionRole
+  assignedAt      DateTime        @default(now())
+
+  nurseProfile NurseProfile @relation(fields: [nurseProfileId], references: [id], onDelete: Cascade)
+  region       Region       @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([nurseProfileId, regionId], map: "unique_region_default_nurse_assignment")
+  @@index([organizationId, regionId], map: "idx_region_default_nurses_org_region")
+  @@map("region_default_nurses")
+}
+
+enum NurseRegionRole {
+  PRIMARY
+  SECONDARY
+}
+
+// County model for PA county-level geographic assignment
+// Counties are assigned to regions for granular geographic coverage
+// IMPORTANT:
+// - regionId is required (no null allowed) — every county MUST belong to a region
+// - onDelete: Restrict prevents region deletion if counties exist (data integrity)
+// - Counties are immutable once created (no update/delete endpoints)
+// - County <-> Region assignment is managed exclusively through Region create/update (county names)
+model County {
+  id             String   @id @default(uuid())
+  name           String   @db.Citext
+  // Null on counties typed in before FIPS codes; those never resolve from a ZIP.
+  stateCode      String?  @db.VarChar(2)
+  fipsCode       String?  @db.VarChar(5)
+  regionId       String // ✅ REQUIRED — every county must have a region
+  organizationId String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  region       Region       @relation(fields: [regionId], references: [id], onDelete: Restrict) // ✅ Restrict prevents orphans
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patients     Patient[]
+
+  @@unique([fipsCode, organizationId], map: "unique_county_fips_per_org")
+  @@index([regionId], map: "idx_counties_region")
+  @@index([organizationId], map: "idx_counties_org")
+  @@map("counties")
+}
+
+// ============================================================
+// CAREGIVER MODULE
+// Caregivers submit checklists, observations, and red flags.
+// They do NOT see full clinical data, dashboards, or other patients.
+// ============================================================
+model CaregiverProfile {
+  id                     String          @id @default(uuid())
+  userId                 String
+  organizationId         String
+  role                   String          @db.VarChar(50)
+  status                 CaregiverStatus @default(ACTIVE)
+  relationshipToPatient  String?         @db.VarChar(100)
+  preferredContactMethod String?         @db.VarChar(50)
+  language               String?         @db.VarChar(10)
+  notes                  String?         @db.Text
+  startDate              DateTime?
+  terminationDate        DateTime?       @map("termination_date")
+  onCallIndicator        Boolean         @default(false)
+  isDeleted              DateTime?       @map("deleted_at")
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  // -- HHAeXchange one-way sync ----------------------------------------------
+  // Mirrors the quadruple on Patient. hhaCaregiverId is the ONLY key sync
+  // matches on (never name, never email) and is a String because HHAeXchange
+  // types CaregiverID as an integer today but PatientID as s:long -- keeping
+  // both as strings means one identity shape across the integration.
+  //
+  // hhaModifiedDate is HHAeXchange's own ModifiedDate for the record. It is
+  // stored for display and support ("when did the agency last touch this?")
+  // and is deliberately NOT what gates writes -- hhaSyncHash does, because
+  // ModifiedDate moves for changes to fields PreventaTri does not store.
+  source          CaregiverSource @default(MANUAL)
+  hhaCaregiverId  String?         @map("hha_caregiver_id") @db.VarChar(32)
+  hhaSyncHash     String?         @map("hha_sync_hash") @db.VarChar(64)
+  hhaLastSyncedAt DateTime?       @map("hha_last_synced_at")
+  hhaModifiedDate DateTime?       @map("hha_modified_date")
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  caregiverPatients    CaregiverPatient[]
+  checklistAssignments ChecklistAssignment[]
+
+  // NOTE: Partial unique index created via migration (not supported in Prisma schema syntax):
+  // CREATE UNIQUE INDEX "unique_caregiver_profile_per_org" ON "caregiver_profiles"("userId", "organizationId") WHERE "deleted_at" IS NULL;
+  // This allows recreating caregiver profiles after soft-deletion.
+  //
+  // The HHA identity index below deliberately SPANS soft-deleted rows, unlike
+  // the partial index above. If it excluded archived rows, archiving a
+  // caregiver who is still active in HHAeXchange would make the very next
+  // nightly sync insert a duplicate, undoing the admin's decision every night.
+  @@unique([organizationId, hhaCaregiverId], map: "unique_hha_caregiver_per_org")
+  @@index([organizationId, source], map: "idx_caregiver_profiles_org_source")
+  @@map("caregiver_profiles")
+}
+
+// Junction table for many-to-many Caregiver <-> Patient relationship
+model CaregiverPatient {
+  id                 String   @id @default(uuid())
+  caregiverProfileId String
+  patientId          String
+  organizationId     String
+  assignedAt         DateTime @default(now())
+
+  caregiverProfile CaregiverProfile @relation(fields: [caregiverProfileId], references: [id], onDelete: Cascade)
+  patient          Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([caregiverProfileId, patientId], map: "unique_caregiver_patient_assignment")
+  @@index([organizationId], map: "idx_caregiver_patients_org")
+  @@map("caregiver_patients")
+}
+
+// ============================================================
+// PATIENT MODULE
+// Patients are the subject of monitoring.
+// They are not required to actively use the app in MVP.
+// Region is auto-derived from county.
+// ============================================================
+model Patient {
+  id               String        @id @default(uuid())
+  firstName        String        @db.VarChar(100)
+  lastName         String        @db.VarChar(100)
+  dateOfBirth      DateTime
+  gender           String?       @db.VarChar(20)
+  countyId         String?
+  organizationId   String
+  status           PatientStatus @default(ACTIVE)
+  address          String?       @db.VarChar(500)
+  city             String?       @db.VarChar(100)
+  state            String?       @db.VarChar(50)
+  zipCode          String?       @db.VarChar(10)
+  email            String?       @db.VarChar(255)
+  phoneNo          String?       @db.VarChar(20)
+  emergencyContact String?       @db.VarChar(20)
+  medicaidId       String?       @db.VarChar(50)
+  diagnoses        String?       @db.Text
+  notes            String?       @db.Text
+  riskLevel        RiskLevel?
+  isDeleted        DateTime?     @map("deleted_at")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  primaryNurseProfileId   String? @map("primary_nurse_profile_id")
+  secondaryNurseProfileId String? @map("secondary_nurse_profile_id")
+
+  // ── HHAeXchange one-way sync ──────────────────────────────────────────────
+  // source marks where the record came from; every pre-existing patient is
+  // MANUAL. hhaPatientId is the ONLY matching key against HHAeXchange (never
+  // name, never email) and is a String because HHA types PatientID as s:long,
+  // which overflows Int — and Prisma BigInt cannot be JSON-serialized by
+  // res.json(). hhaSyncHash gates writes so an unchanged roster costs nothing.
+  source          PatientSource @default(MANUAL)
+  hhaPatientId    String?       @map("hha_patient_id") @db.VarChar(32)
+  hhaSyncHash     String?       @map("hha_sync_hash") @db.VarChar(64)
+  hhaLastSyncedAt DateTime?     @map("hha_last_synced_at")
+
+  // True while the HHA ZIP resolves to a county; sync then owns countyId.
+  isCountyHhaManaged Boolean @default(false) @map("is_county_hha_managed")
+
+  // True while the primary nurse is the one HHA named; false lets an admin pick.
+  isPrimaryNurseHhaManaged Boolean @default(false) @map("is_primary_nurse_hha_managed")
+
+  // The HHA NurseID an admin declined in favour of their own pick.
+  hhaDeclinedNurseId String? @map("hha_declined_nurse_id") @db.VarChar(32)
+
+  // The HHA coordinator an admin chose as case manager; null = HHA's first.
+  hhaSelectedCaseManagerProfileId String? @map("hha_selected_case_manager_profile_id")
+
+  // Who HHA names but cannot be linked yet: not invited, or not active.
+  hhaPendingNurseProfileId       String? @map("hha_pending_nurse_profile_id")
+  hhaPendingCaseManagerProfileId String? @map("hha_pending_case_manager_profile_id")
+
+  // True while the sync set the case manager link; false once an admin picked.
+  isCaseManagerHhaManaged Boolean @default(false) @map("is_case_manager_hha_managed")
+
+  // The HHA case manager an admin declined in favour of the current one.
+  hhaDeclinedCaseManagerProfileId String? @map("hha_declined_case_manager_profile_id")
+
+  hhaPendingNurse       NurseProfile?       @relation("PatientHhaPendingNurse", fields: [hhaPendingNurseProfileId], references: [id], onDelete: SetNull)
+  hhaPendingCaseManager CaseManagerProfile? @relation("PatientHhaPendingCaseManager", fields: [hhaPendingCaseManagerProfileId], references: [id], onDelete: SetNull)
+
+  county                    County?                    @relation(fields: [countyId], references: [id])
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  caregiverPatients         CaregiverPatient[]
+  caseManagerPatients       CaseManagerPatient[]
+  hhaCoordinators           PatientHhaCoordinator[]
+  hhaSelectedCaseManager    CaseManagerProfile?        @relation("PatientHhaSelectedCaseManager", fields: [hhaSelectedCaseManagerProfileId], references: [id], onDelete: SetNull)
+  checklistSubmissions      ChecklistSubmission[]
+  checklistAssignments      ChecklistAssignment[]
+  submissionFlags           SubmissionFlag[]
+  supervisoryVisits         SupervisoryVisit[]
+  followUpTasks             FollowUpTask[]
+  submissionFlagEscalations SubmissionFlagEscalation[]
+  notifications             Notification[]
+
+  primaryNurse   NurseProfile? @relation("PatientPrimaryNurse", fields: [primaryNurseProfileId], references: [id], onDelete: SetNull)
+  secondaryNurse NurseProfile? @relation("PatientSecondaryNurse", fields: [secondaryNurseProfileId], references: [id], onDelete: SetNull)
+  // NOTE: A DB CHECK constraint added via migration ensures primary !== secondary when both are set.
+
+  // Sync matches on (organizationId, hhaPatientId) and nothing else — never on
+  // name, never on email. Declared as a full @@unique rather than a raw-SQL
+  // partial index so Prisma exposes the compound-unique input that upsert needs;
+  // Postgres treats NULLs as distinct, so the many MANUAL rows (all NULL) never
+  // collide with each other. It deliberately spans soft-deleted rows: if it did
+  // not, archiving an HHA patient who is still active in HHAeXchange would make
+  // the next nightly run insert a duplicate, silently undoing the archive.
+  @@unique([organizationId, hhaPatientId], map: "unique_hha_patient_per_org")
+  @@index([organizationId, countyId], map: "idx_patients_org_county")
+  @@index([organizationId, source], map: "idx_patients_org_source")
+  // NOTE: idx_patients_primary_nurse / idx_patients_secondary_nurse are created
+  // by the raw SQL migration (mirrors the convention used for regions). Don't
+  // re-declare them here — Prisma would emit duplicate CREATE INDEX statements.
+  @@map("patients")
+}
+
+// ============================================================
+// HHAEXCHANGE VISITS
+// Read-only mirror of the HHAeXchange visit feed. Standalone by design.
+// ============================================================
+
+// Derived by the visit mapper from the feed (see hhaVisitsConstants for the
+// rules). DELETED is set only by the deleted-visit pass.
+enum HhaVisitStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  DELETED
+}
+
+// How the visit was scheduled, as opposed to what happened on it. These are the
+// four options HHAeXchange's own CreateSchedule form offers for VisitType. The
+// change feed types the field as a plain string and documents no domain for it,
+// so the mapper resolves it through HHAX_VISIT_TYPE_MAP and stores NULL plus an
+// UNMAPPED_VISIT_TYPE exception for anything else -- the column is nullable for
+// that reason as much as for a feed that omits the element.
+enum HhaVisitType {
+  DAILY_FIXED
+  DAILY_VARIABLE
+  WEEKLY_VARIABLE
+  NO_SCHEDULE
+}
+
+// One HHAeXchange visit. In HHAeXchange a SCHEDULE and a VISIT are the same
+// record -- GetScheduleInfo takes a Visit ID and CreateSchedule answers with a
+// VisitID -- so one row carries both halves: the planned window (scheduled*)
+// and what actually happened (actual* / evv*).
+//
+// Deliberately NOT linked to patients or caregiver_profiles. The row stores the
+// HHAeXchange PatientID / CaregiverID and a name snapshot taken at sync time,
+// and nothing else: the HHA Visits page is a read-only view of the agency's
+// schedule, not a PreventaTri workflow, and a visit can name a patient
+// PreventaTri has not imported yet.
+//
+// There is no `source` column, unlike the other HHA resources: every row here
+// is HHAeXchange's. hhaVisitId is a String because HHAeXchange types VisitID
+// as s:long, same as hhaPatientId.
+model HhaVisit {
+  id             String @id @default(uuid())
+  organizationId String
+
+  hhaVisitId     String  @map("hha_visit_id") @db.VarChar(32)
+  hhaPatientId   String? @map("hha_patient_id") @db.VarChar(32)
+  hhaCaregiverId String? @map("hha_caregiver_id") @db.VarChar(32)
+
+  patientFirstName   String? @map("patient_first_name") @db.VarChar(100)
+  patientLastName    String? @map("patient_last_name") @db.VarChar(100)
+  caregiverFirstName String? @map("caregiver_first_name") @db.VarChar(100)
+  caregiverLastName  String? @map("caregiver_last_name") @db.VarChar(100)
+
+  visitDate DateTime       @map("visit_date") @db.Date
+  visitType HhaVisitType?  @map("visit_type")
+  timeZone  String?        @map("time_zone") @db.VarChar(50)
+  status    HhaVisitStatus @default(SCHEDULED)
+
+  // Schedule half: the planned window, stored as UTC instants after anchoring
+  // the feed's local clock values to the record's TimeZone.
+  scheduledStartAt        DateTime? @map("scheduled_start_at")
+  scheduledEndAt          DateTime? @map("scheduled_end_at")
+  scheduleDurationMinutes Int?      @map("schedule_duration_minutes")
+
+  // Visit half: VisitStartTime/VisitEndTime (what the agency recorded) and the
+  // raw EVV clock-in/out, kept apart because an agency edit moves the first and
+  // never the second -- the gap between them is the audit signal.
+  actualStartAt   DateTime? @map("actual_start_at")
+  actualEndAt     DateTime? @map("actual_end_at")
+  evvStartAt      DateTime? @map("evv_start_at")
+  evvEndAt        DateTime? @map("evv_end_at")
+  clockInEvvType  String?   @map("clock_in_evv_type") @db.VarChar(50)
+  clockOutEvvType String?   @map("clock_out_evv_type") @db.VarChar(50)
+
+  // Missed and deleted are RECORDED, never soft-deleted: a cancelled visit that
+  // vanished would look like it was never scheduled. missedReasonId is stored
+  // raw beside the resolved text because the agency's reason master list does
+  // not cover every id the feed uses.
+  isMissedVisit    Boolean   @default(false) @map("is_missed_visit")
+  missedReasonId   Int?      @map("missed_reason_id")
+  missedReason     String?   @map("missed_reason") @db.VarChar(255)
+  hhaDeletedAt     DateTime? @map("hha_deleted_at")
+  hhaDeletedReason String?   @map("hha_deleted_reason") @db.VarChar(255)
+
+  // Sync bookkeeping, the same quadruple as the other HHA resources.
+  // hhaModifiedDate is HHAeXchange's LastModifiedDate, kept for display; it is
+  // NOT what gates writes, because it moves for fields PreventaTri does not
+  // store. hhaSyncHash does.
+  hhaModifiedDate DateTime? @map("hha_modified_date")
+  hhaSyncHash     String?   @map("hha_sync_hash") @db.VarChar(64)
+  hhaLastSyncedAt DateTime? @map("hha_last_synced_at")
+
+  // House convention. The sync never sets it: an HHAeXchange deletion is
+  // status = DELETED with the row kept, not deleted_at.
+  isDeleted DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Sync matches on (organizationId, hhaVisitId) and nothing else. Spans
+  // soft-deleted rows for the same reason as unique_hha_patient_per_org.
+  @@unique([organizationId, hhaVisitId], map: "unique_hha_visit_per_org")
+  @@index([organizationId, visitDate], map: "idx_hha_visits_org_visit_date")
+  @@index([organizationId, status], map: "idx_hha_visits_org_status")
+  @@index([organizationId, visitType], map: "idx_hha_visits_org_visit_type")
+  @@index([organizationId, hhaPatientId], map: "idx_hha_visits_org_patient")
+  @@map("hha_visits")
+}
+
+// One HHAeXchange sync run. id is the run's queue/cron runId. Statuses and
+// triggers are the HHA_SYNC_RUN_STATUSES / HHAX_SYNC_TRIGGERS values.
+model HhaSyncRun {
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  trigger           String    @db.VarChar(16)
+  requestedByUserId String?   @map("requested_by_user_id")
+  status            String    @db.VarChar(16)
+  errorId           String?   @map("error_id") @db.VarChar(64)
+  // Per-resource counters only, never exception details (buildSafeRunSummaries).
+  summaries         Json      @default("{}")
+  startedAt         DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt], map: "idx_hha_sync_runs_org_started")
+  @@map("hha_sync_runs")
+}
+
+// One problem the sync reported, deduplicated across runs by dedupeKey
+// (resource + type + HHA record id, or + detail for record-less problems).
+model HhaSyncException {
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  dedupeKey        String    @map("dedupe_key") @db.VarChar(255)
+  resource         String    @db.VarChar(16)
+  type             String    @db.VarChar(64)
+  hhaRecordId      String?   @map("hha_record_id") @db.VarChar(64)
+  // The other PreventaTri user in an email conflict.
+  relatedUserId    String?   @map("related_user_id")
+  detail           String?   @db.VarChar(255)
+  status           String    @default("OPEN") @db.VarChar(16)
+  occurrences      Int       @default(1)
+  firstSeenRunId   String    @map("first_seen_run_id")
+  lastSeenRunId    String    @map("last_seen_run_id")
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId String?   @map("resolved_by_user_id")
+  resolutionNote   String?   @map("resolution_note") @db.VarChar(500)
+  // Set on a reopen, which keeps resolved* as "last closed"; null user = the sync.
+  reopenedAt       DateTime? @map("reopened_at") @db.Timestamptz(3)
+  reopenedByUserId String?   @map("reopened_by_user_id")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupeKey], map: "uq_hha_sync_exceptions_org_key")
+  @@index([organizationId, status, type], map: "idx_hha_sync_exceptions_org_status_type")
+  @@index([organizationId, resource, status], map: "idx_hha_sync_exceptions_org_resource_status")
+  @@map("hha_sync_exceptions")
+}
+
+// An HHAeXchange person not imported yet because their email belongs to
+// someone else. loginEmail is the admin's answer; the next sync imports with it.
+model HhaPendingImport {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  resource       String   @db.VarChar(16)
+  hhaRecordId    String   @map("hha_record_id") @db.VarChar(64)
+  name           String   @db.VarChar(200)
+  hhaEmail       String   @map("hha_email") @db.VarChar(255)
+  loginEmail     String?  @map("login_email") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, resource, hhaRecordId], map: "uq_hha_pending_imports_org_record")
+  @@index([organizationId, hhaEmail], map: "idx_hha_pending_imports_org_email")
+  @@map("hha_pending_imports")
+}
+
+// One record the sync created or changed. changes is [{field, from, to}];
+// rows before 2026-10-02 may hold [{field, redacted: true}] for patient fields.
+model HhaSyncChange {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  runId          String   @map("run_id")
+  resource       String   @db.VarChar(16)
+  action         String   @db.VarChar(16)
+  hhaRecordId    String   @map("hha_record_id") @db.VarChar(64)
+  changes        Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt], map: "idx_hha_sync_changes_org_created")
+  @@index([runId], map: "idx_hha_sync_changes_run")
+  @@index([organizationId, resource, hhaRecordId], map: "idx_hha_sync_changes_org_record")
+  @@map("hha_sync_changes")
+}
+
+// ============================================================
+// CASE MANAGER MODULE
+// Admin-type user with limited scope for managing caregivers/patients
+// ============================================================
+model CaseManagerProfile {
+  id                     String            @id @default(uuid())
+  userId                 String
+  organizationId         String
+  status                 CaseManagerStatus @default(ACTIVE)
+  preferredContactMethod String?           @db.VarChar(50)
+  language               String?           @db.VarChar(10)
+  startDate              DateTime?
+  title                  String?           @db.VarChar(100)
+  notes                  String?           @db.Text
+  isDeleted              DateTime?         @map("deleted_at")
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  // -- HHAeXchange one-way sync ----------------------------------------------
+  // Mirrors the quadruple on CaregiverProfile. HHAeXchange calls this role a
+  // Coordinator; PreventaTri calls it a Case Manager. The word "Coordinator"
+  // therefore appears only where the wire format demands it -- here, in the
+  // constants and in the mapper -- and never in product copy.
+  //
+  // hhaCoordinatorId is the ONLY key sync matches on first (email is the
+  // fallback, and only for adopting an unclaimed profile).
+  //
+  // There is deliberately NO hhaModifiedDate: GetCoordinators is a full roster
+  // read with no ModifiedDate on the record, unlike the patient and caregiver
+  // change feeds. hhaLastSyncedAt is the only "when" this integration can show
+  // for a case manager.
+  //
+  // No office column, unlike the coordinator's office on HHAeXchange's own
+  // record: nothing in PreventaTri reads or displays it, so it is not captured.
+  source           CaseManagerSource @default(MANUAL)
+  hhaCoordinatorId String?           @map("hha_coordinator_id") @db.VarChar(32)
+  hhaSyncHash      String?           @map("hha_sync_hash") @db.VarChar(64)
+  hhaLastSyncedAt  DateTime?         @map("hha_last_synced_at")
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  caseManagerRegions  CaseManagerRegion[]
+  caseManagerPatients CaseManagerPatient[]
+  supervisoryVisits   SupervisoryVisit[]
+  followUpTasks       FollowUpTask[]
+  patientHhaCoordinators PatientHhaCoordinator[]
+  hhaSelectedPatients    Patient[]               @relation("PatientHhaSelectedCaseManager")
+  hhaPendingForPatients  Patient[]               @relation("PatientHhaPendingCaseManager")
+
+  // NOTE: Partial unique index created via migration (not supported in Prisma schema syntax):
+  // CREATE UNIQUE INDEX "unique_case_manager_profile_per_org" ON "case_manager_profiles"("userId", "organizationId") WHERE "deleted_at" IS NULL;
+  // This allows recreating case manager profiles after soft-deletion.
+  //
+  // The HHA identity index below deliberately SPANS soft-deleted rows, unlike
+  // the partial index above and for the same reason as
+  // unique_hha_caregiver_per_org: if it excluded archived rows, archiving a
+  // case manager who is still active in HHAeXchange would make the very next
+  // nightly sync insert a duplicate, undoing the admin's decision every night.
+  @@unique([organizationId, hhaCoordinatorId], map: "unique_hha_coordinator_per_org")
+  @@index([organizationId, source], map: "idx_case_manager_profiles_org_source")
+  @@map("case_manager_profiles")
+}
+
+// Junction table for many-to-many CaseManager <-> Region relationship
+model CaseManagerRegion {
+  id                   String   @id @default(uuid())
+  caseManagerProfileId String
+  regionId             String
+  organizationId       String
+  assignedAt           DateTime @default(now())
+
+  caseManagerProfile CaseManagerProfile @relation(fields: [caseManagerProfileId], references: [id], onDelete: Cascade)
+  region             Region             @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([caseManagerProfileId, regionId], map: "unique_case_manager_region_assignment")
+  @@index([organizationId, regionId], map: "idx_case_manager_regions_org_region")
+  @@map("case_manager_regions")
+}
+
+// Junction table for many-to-many CaseManager <-> Patient relationship
+model CaseManagerPatient {
+  id                   String   @id @default(uuid())
+  caseManagerProfileId String
+  patientId            String
+  organizationId       String
+  assignedAt           DateTime @default(now())
+
+  caseManagerProfile CaseManagerProfile @relation(fields: [caseManagerProfileId], references: [id], onDelete: Cascade)
+  patient            Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId], map: "unique_patient_case_manager_assignment")
+  @@index([organizationId], map: "idx_case_manager_patients_org")
+  @@map("case_manager_patients")
+}
+
+// Every coordinator HHAeXchange lists on a patient, in HHA's order. Display
+// only: access comes from CaseManagerPatient, which holds the one case manager.
+model PatientHhaCoordinator {
+  id                   String   @id @default(uuid())
+  organizationId       String   @map("organization_id")
+  patientId            String   @map("patient_id")
+  slot                 Int      @db.SmallInt
+  hhaCoordinatorName   String   @map("hha_coordinator_name") @db.VarChar(200)
+  // Null while the name matches no synced case manager.
+  caseManagerProfileId String?  @map("case_manager_profile_id")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient            Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  caseManagerProfile CaseManagerProfile? @relation(fields: [caseManagerProfileId], references: [id], onDelete: SetNull)
+
+  @@unique([patientId, slot], map: "uq_patient_hha_coordinators_patient_slot")
+  @@index([organizationId, slot], map: "idx_patient_hha_coordinators_org_slot")
+  @@map("patient_hha_coordinators")
+}
+
+enum Language {
+  en
+  nl
+}
+
+enum OrganizationTimeZone {
+  EASTERN
+  CENTRAL
+  MOUNTAIN
+  PACIFIC
+  ALASKA
+  HAWAII
+}
+
+enum SystemRole {
+  admin
+  employee
+  nurse
+  caregiver
+  case_manager
+  super_admin
+}
+
+enum OrganizationStatus {
+  pending
+  active
+  rejected
+  suspended
+}
+
+enum ProfessionalRole {
+  RN
+  LPN
+}
+
+enum NurseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  // Core fields
+  organizationId String?     @map("organization_id")
+  userId         String?     @map("user_id")
+  resourceName   String?     @map("resource_name")
+  resourceId     String?     @map("resource_id")
+  action         AuditAction
+  before         Json?
+  after          Json?
+  ipAddress      String?     @map("ip_address")
+  timestamp      DateTime    @default(now())
+
+  // Everything else goes here
+  context Json?
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([timestamp])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  RESET_PASSWORD
+  INVITE
+  ACCOUNT_LOCK
+  ACCOUNT_UNLOCK
+
+  // Integration-run lifecycle (HHAeXchange import). SYNC_STARTED is written by
+  // the request that enqueues the run; the terminal pair is written by the
+  // worker once the run finishes, correlated by the run's uuid in resourceId.
+  SYNC_STARTED
+  SYNC_COMPLETED
+  SYNC_FAILED
+
+  // INVITE is the first send; these are what happens to it afterwards.
+  INVITE_RESENT
+  INVITE_ACCEPTED
+  INVITE_REVOKED
+
+  // A client-side download (PDF/CSV/etc.) of data the user was shown. The
+  // file is built in the browser, so the client reports it; resourceName names
+  // what was exported.
+  DATA_EXPORTED
+
+  // The life of a flag escalation, written by the escalation workers (no HTTP
+  // request). The actor of a start is who raised the flag (none for a checklist flag),
+  // of an assignment none, of an escalation the assignee it moved off.
+  ESCALATION_STARTED
+  ESCALATION_ASSIGNED
+  ESCALATED
+
+  // The assignee accepted the flag, which stops its escalation. Written by the
+  // accept request; the actor is the assignee who accepted.
+  ESCALATION_ACCEPTED
+
+  // SMS / email outcome of an alert notification, written by the delivery
+  // worker on the alert's escalation.
+  NOTIFICATION_DELIVERY
+}
+
+// Mirrors the six caregiver statuses HHAeXchange exposes, so an imported
+// caregiver keeps the status the agency actually set rather than being
+// flattened into active/inactive. INACTIVE, TERMINATED and REJECTED block
+// login (see CAREGIVER_BLOCKED_STATUSES); HOLD and ON_LEAVE are temporary
+// states a caregiver can still sign in from.
+enum CaregiverStatus {
+  ACTIVE
+  INACTIVE
+  HOLD
+  ON_LEAVE
+  TERMINATED
+  REJECTED
+}
+
+enum PatientStatus {
+  ACTIVE
+  WAITING
+  HOSPITALIZED
+  HOLD
+  DISCHARGED
+  ARCHIVED
+}
+
+// Where a patient record originated. MANUAL = created in PreventaTri (every
+// pre-existing row). HHA_EXCHANGE = imported by the one-way HHAeXchange sync,
+// which owns the demographic fields listed in HHA_MANAGED_PATIENT_FIELDS.
+enum PatientSource {
+  MANUAL
+  HHA_EXCHANGE
+}
+
+enum CaregiverSource {
+  MANUAL
+  HHA_EXCHANGE
+}
+
+enum CaseManagerSource {
+  MANUAL
+  HHA_EXCHANGE
+}
+
+enum NurseSource {
+  MANUAL
+  HHA_EXCHANGE
+}
+
+enum CaseManagerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskCategory {
+  LOW
+  MODERATE
+  HIGH
+}
+
+enum ChecklistRiskFlag {
+  GREEN
+  YELLOW
+  RED
+}
+
+// ============================================================
+// CHECKLIST TEMPLATE MODULE
+// Admin-defined forms with sections and questions for caregiver assessments
+// ============================================================
+model ChecklistTemplate {
+  id             String                  @id @default(uuid())
+  organizationId String
+  createdBy      String                  @map("created_by")
+  title          String                  @db.Citext
+  description    String?                 @db.Text
+  status         ChecklistTemplateStatus @default(ACTIVE)
+  type           ChecklistTemplateType   @default(PATIENT) @map("type")
+  isDeleted      DateTime?               @map("deleted_at")
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organization         Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator              User                       @relation("checklistTemplateCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  sections             ChecklistTemplateSection[]
+  checklistSubmissions ChecklistSubmission[]
+  checklistAssignments ChecklistAssignment[]
+  supervisoryVisits    SupervisoryVisit[]
+  followUpTasks        FollowUpTask[]
+
+  // NOTE: Partial unique index created via migration:
+  // - unique_template_title_per_org: (title, organizationId) WHERE deleted_at IS NULL
+  //   Allows title reuse if template is soft-deleted
+  @@index([organizationId], map: "idx_checklist_templates_org")
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateSection {
+  id         String   @id @default(uuid())
+  templateId String
+  title      String   @db.VarChar(100)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  template  ChecklistTemplate           @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  questions ChecklistTemplateQuestion[]
+
+  @@unique([templateId, title], map: "unique_section_title_per_template")
+  @@index([templateId], map: "idx_checklist_sections_template")
+  @@map("checklist_template_sections")
+}
+
+model ChecklistTemplateQuestion {
+  id          String                @id @default(uuid())
+  sectionId   String
+  title       String                @db.VarChar(250)
+  type        ChecklistQuestionType
+  required    Boolean               @default(false)
+  // [{title, flag, points}] -- flag/points only on PATIENT templates, and
+  // points are derived from flag server-side, never sent by the client.
+  options     Json?
+  placeholder String?               @db.VarChar(50)
+  sortOrder   Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  section           ChecklistTemplateSection    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  submissionAnswers ChecklistSubmissionAnswer[]
+
+  @@index([sectionId], map: "idx_checklist_questions_section")
+  @@map("checklist_template_questions")
+}
+
+enum ChecklistQuestionType {
+  textarea
+  number
+  boolean
+  select
+  multiSelect
+  date
+  checkbox
+}
+
+enum ChecklistTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum ChecklistTemplateType {
+  PATIENT
+  FOLLOW_UP
+  SUPERVISORY_VISIT
+}
+
+// ============================================================
+// CHECKLIST SUBMISSION MODULE
+// Caregivers submit filled-out checklist templates for patients.
+// Each submission contains answers to template questions.
+// Answers can have image attachments stored in S3.
+// ============================================================
+model ChecklistSubmission {
+  id                  String                    @id @default(uuid())
+  assignmentId        String
+  checklistTemplateId String
+  patientId           String
+  assigneeId          String
+  organizationId      String
+  status              ChecklistSubmissionStatus @default(UPCOMING)
+  skipReason          String?                   @map("skip_reason") @db.Text
+  voidReason          String?                   @map("void_reason") @db.Text
+  voidedAt            DateTime?                 @map("voided_at")
+  visitNotes          String?                   @db.Text
+  dueDate             DateTime?                 @map("due_date")
+  deadline            DateTime?                 @map("deadline")
+  submittedAt         DateTime?
+  updatedAt           DateTime                  @updatedAt
+  isDeleted           DateTime?                 @map("deleted_at")
+
+  assignment        ChecklistAssignment         @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  checklistTemplate ChecklistTemplate           @relation(fields: [checklistTemplateId], references: [id], onDelete: Cascade)
+  patient           Patient                     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  assignee          User                        @relation("submissionAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  organization      Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  answers           ChecklistSubmissionAnswer[]
+  risk              ChecklistSubmissionRisk?
+  submissionFlags   SubmissionFlag[]
+
+  @@unique([assignmentId, dueDate], map: "unique_assignment_period")
+  @@index([assignmentId], map: "idx_checklist_submissions_assignment")
+  @@index([organizationId], map: "idx_checklist_submissions_org")
+  @@index([patientId], map: "idx_checklist_submissions_patient")
+  @@index([assigneeId], map: "idx_checklist_submissions_assignee")
+  @@index([checklistTemplateId], map: "idx_checklist_submissions_template")
+  @@index([status, deadline], map: "idx_checklist_submissions_status_deadline")
+  @@index([organizationId, dueDate], map: "idx_checklist_submissions_org_due")
+  @@map("checklist_submissions")
+}
+
+model ChecklistSubmissionAnswer {
+  id           String    @id @default(uuid())
+  submissionId String
+  questionId   String
+  value        Json?
+  comment      String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  isDeleted    DateTime? @map("deleted_at")
+
+  images Json @default("[]")
+
+  submission ChecklistSubmission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question   ChecklistTemplateQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, questionId], map: "unique_answer_per_question")
+  @@index([submissionId], map: "idx_submission_answers_submission")
+  @@map("checklist_submission_answers")
+}
+
+model ChecklistSubmissionRisk {
+  id           String            @id @default(uuid())
+  submissionId String            @unique @map("submissionId")
+  flag         ChecklistRiskFlag
+  riskScore    Int               @map("riskScore")
+  riskCategory RiskCategory      @map("riskCategory")
+  calculatedAt DateTime          @map("calculatedAt")
+
+  submission ChecklistSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("checklist_submission_risks")
+}
+
+enum ChecklistSubmissionStatus {
+  UPCOMING
+  PENDING
+  LATE
+  SUBMITTED
+  REVIEWED
+  MISSED
+  SKIPPED
+  VOIDED
+}
+
+// ============================================================
+// CHECKLIST ASSIGNMENT MODULE
+// Admins assign specific checklists to specific caregivers for patients.
+// Only the assigned caregiver can submit the assigned checklist.
+// ============================================================
+model ChecklistAssignment {
+  id                  String                  @id @default(uuid())
+  checklistTemplateId String
+  patientId           String
+  caregiverProfileId  String
+  organizationId      String
+  assignedBy          String                  @map("assigned_by")
+  startDate           DateTime                @map("start_date")
+  endDate             DateTime                @map("end_date")
+  notes               String?                 @db.Text
+  type                ChecklistAssignmentType
+  isDeleted           DateTime?               @map("deleted_at")
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  checklistTemplate ChecklistTemplate     @relation(fields: [checklistTemplateId], references: [id], onDelete: Cascade)
+  patient           Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  caregiverProfile  CaregiverProfile      @relation(fields: [caregiverProfileId], references: [id], onDelete: Cascade)
+  assigner          User                  @relation("checklistAssignmentAssigner", fields: [assignedBy], references: [id], onDelete: Cascade)
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submissions       ChecklistSubmission[]
+
+  @@index([organizationId], map: "idx_checklist_assignments_org")
+  @@index([patientId], map: "idx_checklist_assignments_patient")
+  @@index([caregiverProfileId], map: "idx_checklist_assignments_caregiver_profile")
+  @@index([checklistTemplateId], map: "idx_checklist_assignments_template")
+  @@map("checklist_assignments")
+}
+
+enum ChecklistAssignmentType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// ============================================================
+// SUBMISSION FLAG MODULE
+// Unified flag model — both manual (caregiver-submitted red flags) and
+// auto (system-calculated risk flags from checklist submissions).
+// Only admin can update/delete. All roles can view.
+// ============================================================
+model SubmissionFlag {
+  id             String            @id @default(uuid())
+  reason         Int
+  description    String            @db.Text
+  images         Json              @default("[]")
+  audioNote      Json?             @map("audio_note")
+  patientId      String
+  organizationId String
+  submittedBy    String            @map("submitted_by")
+  submissionId   String?           @map("submissionId")
+  flag           ChecklistRiskFlag
+  category       RiskCategory
+  score          Int?
+  type           FlagType
+  status         FlagStatus        @default(PENDING)
+  voidReason     String?           @map("void_reason") @db.Text
+  voidedAt       DateTime?         @map("voided_at")
+  voidedBy       String?           @map("voided_by")
+  isDeleted      DateTime?         @map("deleted_at")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  patient            Patient                           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  organization       Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submitter          User                              @relation("submissionFlagSubmitter", fields: [submittedBy], references: [id], onDelete: Cascade)
+  voider             User?                             @relation("submissionFlagVoider", fields: [voidedBy], references: [id], onDelete: SetNull)
+  submission         ChecklistSubmission?              @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  escalation         SubmissionFlagEscalation?
+  escalationResponse SubmissionFlagEscalationResponse?
+  followUpTasks      FollowUpTask[]
+  supervisoryVisits  SupervisoryVisit[]
+
+  @@index([organizationId], map: "idx_submission_flags_org")
+  @@index([submittedBy], map: "idx_submission_flags_submitter")
+  @@index([patientId], map: "idx_submission_flags_patient")
+  @@index([submissionId], map: "idx_submission_flags_submission")
+  @@index([organizationId, createdAt], map: "idx_submission_flags_org_created")
+  @@map("submission_flags")
+}
+
+enum FlagType {
+  AUTO
+  MANUAL
+}
+
+enum FlagStatus {
+  PENDING
+  ACCEPTED
+  SUBMITTED
+  ESCALATED
+  RESOLVED
+  VOIDED
+}
+
+// ============================================================
+// SUPERVISORY VISIT MODULE
+// A scheduled in-home visit one care-team member (nurse, admin or case
+// manager) performs with the patient's caregivers present. The assignee files
+// the visit (checklist + findings), a reviewer approves it or sends it back.
+// Events table keeps the per-visit history, including the sweeps.
+// ============================================================
+model SupervisoryVisit {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  patientId      String @map("patient_id")
+
+  // Legacy pre-rework assignee. Nullable and no longer written -- the assignee
+  // lives on assigneeUserOrganizationId. Dropped in a later cleanup migration.
+  caseManagerProfileId String? @map("case_manager_profile_id")
+
+  assigneeUserOrganizationId String  @map("assignee_user_organization_id")
+  submissionFlagId           String? @map("submission_flag_id")
+  checklistTemplateId        String  @map("checklist_template_id")
+
+  visitType      String  @default("ROUTINE") @map("visit_type")
+  visitTypeOther String? @map("visit_type_other") @db.VarChar(200)
+  description    String? @db.Text
+
+  // Legacy date-only due date, superseded by scheduledStartAt. No longer written.
+  dueDate          DateTime? @map("due_date") @db.Date
+  scheduledStartAt DateTime  @map("scheduled_start_at") @db.Timestamptz(3)
+  scheduledEndAt   DateTime  @map("scheduled_end_at") @db.Timestamptz(3)
+
+  sentReminderOffsets Int[] @default([]) @map("sent_reminder_offsets")
+
+  // Legacy: instructions now live in description; the alert in submissionFlag.
+  visitInstructions String? @map("visit_instructions") @db.Text
+  flagType          Int?    @map("flag_type")
+  status            String  @default("SCHEDULED") @map("status")
+
+  answers Json @default("[]")
+
+  // Filing = completion. completionNotes carries the findings narrative.
+  completionOutcome String?   @map("completion_outcome")
+  completionNotes   String?   @map("completion_notes") @db.Text
+  completionFiles   Json      @default("[]") @map("completion_files")
+  completionSource  String?   @map("completion_source")
+  overdueAt         DateTime? @map("overdue_at") @db.Timestamptz(3)
+  completedAt       DateTime? @map("completed_at")
+  completedBy       String?   @map("completed_by")
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  reviewedBy        String?   @map("reviewed_by")
+  reviewNote        String?   @map("review_note") @db.Text
+  cancelReason      String?   @map("cancel_reason") @db.Text
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  cancelledBy       String?   @map("cancelled_by")
+
+  createdBy String    @map("created_by")
+  isDeleted DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient            Patient                     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  caseManagerProfile CaseManagerProfile?         @relation(fields: [caseManagerProfileId], references: [id], onDelete: Cascade)
+  assignee           UserOrganization            @relation("supervisoryVisitAssignee", fields: [assigneeUserOrganizationId], references: [id], onDelete: Restrict)
+  submissionFlag     SubmissionFlag?             @relation(fields: [submissionFlagId], references: [id], onDelete: SetNull)
+  checklistTemplate  ChecklistTemplate           @relation(fields: [checklistTemplateId], references: [id], onDelete: Cascade)
+  completedByUser    User?                       @relation("supervisoryVisitCompleter", fields: [completedBy], references: [id], onDelete: SetNull)
+  reviewedByUser     User?                       @relation("supervisoryVisitReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  cancelledByUser    User?                       @relation("supervisoryVisitCanceller", fields: [cancelledBy], references: [id], onDelete: SetNull)
+  createdByUser      User                        @relation("supervisoryVisitCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  caregivers         SupervisoryVisitCaregiver[]
+  events             SupervisoryVisitEvent[]
+  followUpTasks      FollowUpTask[]
+
+  @@index([organizationId, patientId], map: "idx_supervisory_visits_org_patient")
+  @@index([caseManagerProfileId], map: "idx_supervisory_visits_case_manager")
+  @@index([organizationId, status, scheduledStartAt], map: "idx_supervisory_visits_org_status_start")
+  @@index([assigneeUserOrganizationId, status], map: "idx_supervisory_visits_assignee_status")
+  @@index([submissionFlagId], map: "idx_supervisory_visits_submission_flag")
+  @@map("supervisory_visits")
+}
+
+// Caregivers present at a visit; they are notified but never own the visit.
+model SupervisoryVisitCaregiver {
+  visitId            String   @map("visit_id") @db.Uuid
+  userOrganizationId String   @map("user_organization_id")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  visit   SupervisoryVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  userOrg UserOrganization @relation("supervisoryVisitCaregiver", fields: [userOrganizationId], references: [id], onDelete: Cascade)
+
+  @@id([visitId, userOrganizationId])
+  @@index([userOrganizationId], map: "idx_supervisory_visit_caregivers_user_org")
+  @@map("supervisory_visit_caregivers")
+}
+
+// Per-visit history. actorType SYSTEM rows come from the sweeps (no user).
+model SupervisoryVisitEvent {
+  id                             String   @id @default(uuid())
+  visitId                        String   @map("visit_id") @db.Uuid
+  organizationId                 String   @map("organization_id")
+  type                           String
+  actorType                      String   @map("actor_type")
+  actorUserId                    String?  @map("actor_user_id")
+  fromStatus                     String?  @map("from_status")
+  toStatus                       String?  @map("to_status")
+  fromAssigneeUserOrganizationId String?  @map("from_assignee_user_organization_id")
+  toAssigneeUserOrganizationId   String?  @map("to_assignee_user_organization_id")
+  payload                        Json     @default("{}")
+  createdAt                      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  visit        SupervisoryVisit  @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  actor        User?             @relation("supervisoryVisitEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  fromAssignee UserOrganization? @relation("supervisoryVisitEventFromAssignee", fields: [fromAssigneeUserOrganizationId], references: [id], onDelete: SetNull)
+  toAssignee   UserOrganization? @relation("supervisoryVisitEventToAssignee", fields: [toAssigneeUserOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([visitId, createdAt], map: "idx_supervisory_visit_events_visit_created")
+  @@map("supervisory_visit_events")
+}
+
+// ============================================================
+// FOLLOW-UP TASK MODULE
+// A task any care-team member (nurse, case manager, caregiver, admin) can own.
+// The assignee is a UserOrganization; the nightly sweep flips past-due open
+// tasks to OVERDUE and hands them to the org admin. Events table keeps the
+// per-task history (who did what, when), including system actions.
+// ============================================================
+model FollowUpTask {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  patientId      String @map("patient_id")
+
+  // Legacy pre-rework assignee. Nullable and no longer written -- the assignee
+  // lives on assigneeUserOrganizationId. Dropped in a later cleanup migration.
+  caseManagerProfileId String? @map("case_manager_profile_id")
+
+  assigneeUserOrganizationId String  @map("assignee_user_organization_id")
+  submissionFlagId           String? @map("submission_flag_id")
+  supervisoryVisitId         String? @map("supervisory_visit_id") @db.Uuid
+  checklistTemplateId        String? @map("checklist_template_id")
+
+  title       String  @db.VarChar(200)
+  description String? @db.Text
+  priority    String  @default("NORMAL")
+
+  // Legacy date-only due date, superseded by dueAt. No longer written.
+  dueDate DateTime? @map("due_date") @db.Date
+  dueAt   DateTime  @map("due_at") @db.Timestamptz(3)
+
+  sentReminderOffsets Int[] @default([]) @map("sent_reminder_offsets")
+
+  visitInstructions String? @map("visit_instructions") @db.Text
+  flagType          Int?    @map("flag_type")
+  status            String  @default("PENDING") @map("status")
+
+  answers               Json    @default("[]")
+  caseManagerReply      String? @map("case_manager_reply") @db.Text
+  caseManagerReplyFiles Json?   @map("case_manager_reply_files")
+
+  completionOutcome String?   @map("completion_outcome")
+  completionNotes   String?   @map("completion_notes") @db.Text
+  completionFiles   Json      @default("[]") @map("completion_files")
+  completionSource  String?   @map("completion_source")
+  overdueAt         DateTime? @map("overdue_at") @db.Timestamptz(3)
+  completedAt       DateTime? @map("completed_at")
+  completedBy       String?   @map("completed_by")
+  cancelReason      String?   @map("cancel_reason") @db.Text
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  cancelledBy       String?   @map("cancelled_by")
+
+  createdBy String    @map("created_by")
+  isDeleted DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patient            Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  caseManagerProfile CaseManagerProfile? @relation(fields: [caseManagerProfileId], references: [id], onDelete: Cascade)
+  assignee           UserOrganization    @relation("followUpTaskAssignee", fields: [assigneeUserOrganizationId], references: [id], onDelete: Restrict)
+  submissionFlag     SubmissionFlag?     @relation(fields: [submissionFlagId], references: [id], onDelete: SetNull)
+  supervisoryVisit   SupervisoryVisit?   @relation(fields: [supervisoryVisitId], references: [id], onDelete: SetNull)
+  checklistTemplate  ChecklistTemplate?  @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
+  completedByUser    User?               @relation("FollowUpTaskCompletedByUser", fields: [completedBy], references: [id], onDelete: SetNull)
+  cancelledByUser    User?               @relation("FollowUpTaskCancelledByUser", fields: [cancelledBy], references: [id], onDelete: SetNull)
+  createdByUser      User                @relation("FollowUpTaskCreatedByUser", fields: [createdBy], references: [id], onDelete: Cascade)
+  events             FollowUpTaskEvent[]
+
+  @@index([organizationId, patientId], map: "idx_follow_up_tasks_org_patient")
+  @@index([caseManagerProfileId], map: "idx_follow_up_tasks_case_manager")
+  @@index([organizationId, status, dueAt], map: "idx_follow_up_tasks_org_status_due")
+  @@index([assigneeUserOrganizationId, status], map: "idx_follow_up_tasks_assignee_status")
+  @@index([submissionFlagId], map: "idx_follow_up_tasks_submission_flag")
+  @@index([supervisoryVisitId], map: "idx_follow_up_tasks_supervisory_visit")
+  @@index([organizationId, createdAt], map: "idx_follow_up_tasks_org_created")
+  @@map("follow_up_tasks")
+}
+
+// Per-task history. actorType SYSTEM rows come from the sweeps (no user).
+model FollowUpTaskEvent {
+  id                             String   @id @default(uuid())
+  taskId                         String   @map("task_id") @db.Uuid
+  organizationId                 String   @map("organization_id")
+  type                           String
+  actorType                      String   @map("actor_type")
+  actorUserId                    String?  @map("actor_user_id")
+  fromStatus                     String?  @map("from_status")
+  toStatus                       String?  @map("to_status")
+  fromAssigneeUserOrganizationId String?  @map("from_assignee_user_organization_id")
+  toAssigneeUserOrganizationId   String?  @map("to_assignee_user_organization_id")
+  payload                        Json     @default("{}")
+  createdAt                      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task         FollowUpTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor        User?             @relation("followUpTaskEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  fromAssignee UserOrganization? @relation("followUpTaskEventFromAssignee", fields: [fromAssigneeUserOrganizationId], references: [id], onDelete: SetNull)
+  toAssignee   UserOrganization? @relation("followUpTaskEventToAssignee", fields: [toAssigneeUserOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt], map: "idx_follow_up_task_events_task_created")
+  @@map("follow_up_task_events")
+}
+
+// ============================================================
+// SUBMISSION FLAG ESCALATION MODULE
+// Routes RED-flag alerts through primary nurse → secondary nurse →
+// case manager → org admin with TTL-based auto-escalation. Events
+// table preserves the full audit trail of who was paged and when.
+// ============================================================
+model SubmissionFlagEscalation {
+  id                String                            @id @default(uuid())
+  submissionFlagId  String                            @unique @map("submission_flag_id")
+  submissionFlag    SubmissionFlag                    @relation(fields: [submissionFlagId], references: [id])
+  patientId         String
+  patient           Patient                           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  organizationId    String
+  organization      Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regionId          String?
+  region            Region?                           @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  currentLevel      EscalationLevel
+  // The policy version this escalation follows for its whole life, and the
+  // index of the step it is on. Null only on rows started before policies
+  // existed — those follow DEFAULT_ESCALATION_POLICY_STEPS.
+  policyId          String?                           @map("policy_id")
+  policy            EscalationPolicy?                 @relation(fields: [policyId], references: [id], onDelete: NoAction)
+  currentStepIndex  Int?                              @map("current_step_index")
+  currentAssigneeId String?                           @map("current_assignee_id")
+  currentAssignee   UserOrganization?                 @relation("escalationCurrentAssignee", fields: [currentAssigneeId], references: [id], onDelete: SetNull)
+  assignedAt        DateTime                          @map("assigned_at") @db.Timestamptz(3)
+  expiresAt         DateTime?                         @map("expires_at") @db.Timestamptz(3)
+  status            EscalationStatus                  @default(ACTIVE)
+  acknowledgedAt    DateTime?                         @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedById  String?                           @map("acknowledged_by_id")
+  acknowledgedBy    UserOrganization?                 @relation("escalationAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  events            SubmissionFlagEscalationEvent[]
+  response          SubmissionFlagEscalationResponse?
+  createdAt         DateTime                          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, expiresAt])
+  @@index([currentAssigneeId, status])
+  @@index([organizationId, status])
+  @@index([policyId])
+  @@map("submission_flag_escalations")
+}
+
+// ============================================================
+// ESCALATION POLICY
+// The organization's escalation flow for one flag color: which steps a flag
+// goes through, in what order, and how long each step waits. Rows are
+// immutable versions — an edit inserts version N+1 and the highest version is
+// the active one. Each escalation pins the version it started on (policyId),
+// so editing the policy never changes flags that are already escalating.
+// `steps` is [{type: ESCALATION_STEP_TYPES, ttlMinutes: Int | null,
+// ttlUnit: ESCALATION_TTL_UNITS | null, channels: NOTIFICATION_CHANNELS[]}],
+// ending with ADMIN (ttlMinutes/ttlUnit null — no deadline).
+// ============================================================
+model EscalationPolicy {
+  id             String                     @id @default(uuid())
+  organizationId String                     @map("organization_id")
+  organization   Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  flag           ChecklistRiskFlag
+  version        Int
+  steps          Json
+  createdBy      String?                    @map("created_by")
+  creator        User?                      @relation("escalationPolicyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  escalations    SubmissionFlagEscalation[]
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([organizationId, flag, version], map: "unique_escalation_policy_version")
+  @@map("escalation_policies")
+}
+
+model SubmissionFlagEscalationEvent {
+  id           String                   @id @default(uuid())
+  escalationId String                   @map("escalation_id")
+  escalation   SubmissionFlagEscalation @relation(fields: [escalationId], references: [id])
+  level        EscalationLevel
+  assigneeId   String?
+  assignee     UserOrganization?        @relation("escalationEventAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignedAt   DateTime                 @map("assigned_at") @db.Timestamptz(3)
+  endedAt      DateTime?                @map("ended_at") @db.Timestamptz(3)
+  action       EscalationAction
+  createdAt    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([escalationId, assignedAt])
+  @@map("submission_flag_escalation_events")
+}
+
+// ============================================================
+// SUBMISSION FLAG ESCALATION RESPONSE
+// The assignee's resolution of an escalation: which actions were taken,
+// free-text notes, and optional follow-up / supervisory-visit scheduling.
+// One response per escalation; creating it flips the flag + escalation to
+// RESOLVED. `actions` holds ESCALATION_RESPONSE_ACTIONS integer codes.
+// ============================================================
+model SubmissionFlagEscalationResponse {
+  id                      String                   @id @default(uuid())
+  escalationId            String                   @unique @map("escalation_id")
+  escalation              SubmissionFlagEscalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  submissionFlagId        String                   @unique @map("submission_flag_id")
+  submissionFlag          SubmissionFlag           @relation(fields: [submissionFlagId], references: [id], onDelete: Cascade)
+  organizationId          String                   @map("organization_id")
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actions                 Int[]                    @default([])
+  notes                   String?                  @db.Text
+  attachments             Json                     @default("[]")
+  hasFollowUp             Boolean                  @default(false) @map("has_follow_up")
+  followUpDate            DateTime?                @map("follow_up_date") @db.Timestamptz(3)
+  followUpDescription     String?                  @map("follow_up_description") @db.Text
+  hasSupervisoryVisit     Boolean                  @default(false) @map("has_supervisory_visit")
+  supervisoryVisitDate    DateTime?                @map("supervisory_visit_date") @db.Timestamptz(3)
+  supervisoryInstructions String?                  @map("supervisory_instructions") @db.Text
+  submittedBy             String                   @map("submitted_by")
+  submitter               User                     @relation("escalationResponseSubmitter", fields: [submittedBy], references: [id], onDelete: Cascade)
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([organizationId], map: "idx_escalation_responses_org")
+  @@index([submittedBy], map: "idx_escalation_responses_submitter")
+  @@map("submission_flag_escalation_responses")
+}
+
+enum EscalationLevel {
+  PATIENT_PRIMARY_NURSE
+  REGION_PRIMARY_NURSE
+  PATIENT_SECONDARY_NURSE
+  REGION_SECONDARY_NURSE
+  CASE_MANAGER
+  ADMIN
+}
+
+enum EscalationStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+  EXPIRED
+  FAILED
+  VOIDED
+}
+
+enum EscalationAction {
+  ASSIGNED
+  ACKNOWLEDGED
+  RESOLVED
+  ESCALATED
+  EXPIRED
+  REASSIGNED
+  VOIDED
+}
+
+// ============================================================
+// NOTIFICATION
+// In-app notifications. One row = one (recipient, event) pair. The title and
+// description are rendered at write time so the feed reads from a single table.
+// `recipientId` is who sees it; `performedBy` is the actor who triggered the
+// action (null for system/cron-generated notifications).
+// ============================================================
+model Notification {
+  id String @id @default(uuid())
+
+  // Recipient — who sees the notification. Scoped by org so a multi-org user's
+  // feed never crosses the active-org boundary.
+  recipientId String @map("recipient_id")
+  recipient   User   @relation("notificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  title       String  @db.VarChar(255)
+  description String? @db.Text
+
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at") @db.Timestamptz(3)
+
+  // Who triggered the notification. performerType distinguishes a real user from
+  // an automated/system event:
+  //   SYSTEM => performedBy is null
+  //   USER   => performedBy holds the actor's user id (FK, joinable via performer)
+  // Enforced at the DB level via CHECK constraint
+  // notifications_performer_consistency_check. Defaults to SYSTEM so a row
+  // without an explicit actor (e.g. a raw insert) stays consistent.
+  performerType NotificationPerformerType @default(SYSTEM) @map("performer_type")
+  performedBy   String?                   @map("performed_by")
+  performer     User?                     @relation("notificationPerformer", fields: [performedBy], references: [id], onDelete: SetNull)
+
+  // Routing target for the frontend: the record this notification is about.
+  // documentType picks the details page (FLAG → submission_flags, FOLLOWUPTASK →
+  // follow_up_tasks, SUPERVISORYVISIT → supervisory_visits) and documentId is
+  // that record's id. Plain columns (no FK) — the targets live in different
+  // tables and deleting a target must not delete the notification history.
+  // Both null when the notification has no navigation target.
+  documentType NotificationDocumentType? @map("document_type")
+  documentId   String?                   @map("document_id")
+
+  // The patient the notification is about; caregivers only see it while they
+  // can still open that patient. Null on non-patient notices or after a hard delete.
+  patientId String?  @map("patient_id")
+  patient   Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  // Priority indicator (critical/high/low), set from the notification template.
+  type NotificationType @default(low)
+
+  // Outcome of each external channel (see NotificationDeliveryStatus). Set when
+  // the row is created and finalized by the delivery worker.
+  emailStatus NotificationDeliveryStatus @default(NOT_REQUESTED) @map("email_status")
+  smsStatus   NotificationDeliveryStatus @default(NOT_REQUESTED) @map("sms_status")
+
+  // Provider error message when a channel's status is FAILED; null otherwise.
+  emailError String? @map("email_error") @db.Text
+  smsError   String? @map("sms_error") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // Unread-badge count for one recipient in one org.
+  @@index([recipientId, organizationId, isRead])
+  // Recency feed: list a recipient's notifications ordered by createdAt DESC.
+  @@index([recipientId, organizationId, createdAt(sort: Desc)])
+  @@index([patientId])
+  @@map("notifications")
+}
+
+enum NotificationPerformerType {
+  USER
+  SYSTEM
+}
+
+enum NotificationType {
+  critical
+  high
+  low
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  BLOCKED_IN_ESCALATION_POLICY
+  NOT_IN_WORKING_HOURS
+  NOT_REQUESTED
+  DISABLED
+  NO_CONTACT
+}
+
+enum NotificationDocumentType {
+  FLAG
+  FOLLOWUPTASK
+  SUPERVISORYVISIT
+}

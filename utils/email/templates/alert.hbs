@@ -1,0 +1,16 @@
+{{> header eyebrow="Notification" title=title pillTone=alertTone pillLabel=alertLabel}}
+{{#if name}}
+  <p style="{{p1Style}}">Hi <strong style="{{strongStyle}}">{{name}}</strong>, you have a new notification.</p>
+{{/if}}
+
+{{#if description}}
+  {{> severityBanner tone=alertTone text=description spacing="0 0 28px 0"}}
+{{/if}}
+
+{{#if actionButton}}
+  {{> button url=actionButton.url label=actionButton.label}}
+{{else}}
+  <p style="{{smallStyle}}">Sign in to {{#if baseUrl}}<a href="{{baseUrl}}" target="_blank" rel="noopener noreferrer" style="{{linkStyle}}">{{appName}}</a>{{else}}<strong style="{{strongStyle}}">{{appName}}</strong>{{/if}} to see the full details and take action.</p>
+{{/if}}
+
+{{> footer text="This is an automated notification from PreventaTri. Please do not reply."}}

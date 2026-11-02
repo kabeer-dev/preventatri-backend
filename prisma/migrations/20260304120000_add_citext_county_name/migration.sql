@@ -1,0 +1,3 @@
+CREATE EXTENSION IF NOT EXISTS citext;
+
+ALTER TABLE "counties" ALTER COLUMN "name" TYPE citext;

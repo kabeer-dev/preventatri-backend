@@ -1,0 +1,39 @@
+{{> header eyebrow="Invitation" title="You’ve been invited to PreventaTri"}}
+{{#if inviterName}}
+  <p style="{{p1Style}}"><strong style="{{strongStyle}}">{{inviterName}}</strong> invited you to join their team. Accept the invitation to set up your account.</p>
+{{else}}
+  <p style="{{p1Style}}">Accept the invitation to set up your account and join your team.</p>
+{{/if}}
+
+{{#if hasFacts}}
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 24px 0;">
+    <tr>
+      <td style="{{factsBoxStyle}}">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+          {{#if inviterName}}
+            <tr>
+              <td width="116" valign="top" style="{{factLabelStyle}}">Invited by</td>
+              <td valign="top" style="{{factValueStyle}}">{{inviterName}}</td>
+            </tr>
+          {{/if}}
+          {{#if inviterEmail}}
+            <tr>
+              <td width="116" valign="top" style="{{factLabelStyle}}">Their email</td>
+              <td valign="top" style="{{factValueStyle}} {{factMonoStyle}}">{{inviterEmail}}</td>
+            </tr>
+          {{/if}}
+          {{#if role}}
+            <tr>
+              <td width="116" valign="top" style="{{factLabelStyle}}">Your role</td>
+              <td valign="top" style="{{factValueStyle}}">{{role}}</td>
+            </tr>
+          {{/if}}
+        </table>
+      </td>
+    </tr>
+  </table>
+{{/if}}
+
+{{> button url=actionButton.url label=actionButton.label}}
+
+{{> footer text="You received this email because you were invited to PreventaTri. If you weren&rsquo;t expecting it, you can ignore this email."}}

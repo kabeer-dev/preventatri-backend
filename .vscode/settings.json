@@ -1,0 +1,42 @@
+{
+  // ...............................General Settings............................................ //
+
+  // Enable bracket pair guides
+  "editor.guides.bracketPairs": "active",
+
+  // Auto-formatting options
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnType": true,
+
+  // Auto-update imports on file move
+  "javascript.updateImportsOnFileMove.enabled": "always",
+  "typescript.updateImportsOnFileMove.enabled": "always",
+
+  // Editor suggestions and linked editing
+  "editor.suggestSelection": "first",
+  "editor.linkedEditing": true,
+
+  // Git-related settings
+  "git.ignoreRebaseWarning": true,
+  "git.autofetch": true,
+  "git.enableSmartCommit": true,
+
+  // Confirmation and Prettier settings
+  "explorer.confirmDelete": false,
+  "prettier.useEditorConfig": false,
+
+  // Spell checker settings
+  "cSpell.userWords": ["desol", "desolint", "desol int"],
+
+  // Format settings for different languages using Prettier
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}

@@ -1,0 +1,13 @@
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 36px;">
+  <tr>
+    <td style="{{footerRuleStyle}}">
+      <p style="{{footerTextStyle}}">{{{text}}}</p>
+      <p style="{{footerMetaStyle}}">
+        &copy; {{currentYear}} {{appName}}
+        {{#if baseUrl}}
+          &nbsp;&middot;&nbsp; <a href="{{baseUrl}}" target="_blank" rel="noopener noreferrer" style="{{footerLinkStyle}}">{{baseHost}}</a>
+        {{/if}}
+      </p>
+    </td>
+  </tr>
+</table>

@@ -1,0 +1,14 @@
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: {{#if spacing}}{{spacing}}{{else}}24px 0 0 0{{/if}};">
+  <tr>
+    <td style="{{bannerStyle}} background-color: {{tone.bg}}; border: 1px solid {{tone.border}};">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          {{#if tone.glyph}}
+            <td valign="top" style="{{bannerGlyphStyle}} color: {{tone.accent}};">{{tone.glyph}}</td>
+          {{/if}}
+          <td style="{{bannerTextStyle}} color: {{tone.text}};">{{#if html}}{{{html}}}{{else}}{{text}}{{/if}}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

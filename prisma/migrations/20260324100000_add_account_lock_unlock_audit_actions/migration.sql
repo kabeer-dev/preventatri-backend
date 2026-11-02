@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "AuditAction" ADD VALUE 'ACCOUNT_LOCK';
+ALTER TYPE "AuditAction" ADD VALUE 'ACCOUNT_UNLOCK';

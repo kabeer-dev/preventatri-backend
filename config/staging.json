@@ -1,0 +1,6 @@
+{
+  "defaultEmailAddress": "noreply@testsapps.com",
+  "defaultEmailName": "Desol Int.",
+  "redisCluster": true,
+  "redisTls": true
+}

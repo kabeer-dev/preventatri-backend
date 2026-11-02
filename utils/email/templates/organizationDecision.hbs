@@ -1,0 +1,11 @@
+{{> header eyebrow="Organization" title=title}}
+<p style="{{p1Style}}">{{message}}</p>
+{{#if reason}}
+  <p style="{{p1Style}}"><strong style="{{strongStyle}}">Reason:</strong> {{reason}}</p>
+{{/if}}
+
+{{#if actionButton.url}}
+  {{> button url=actionButton.url label=actionButton.label}}
+{{/if}}
+
+{{> footer text="You received this email because you are the administrator of this organization on PreventaTri."}}

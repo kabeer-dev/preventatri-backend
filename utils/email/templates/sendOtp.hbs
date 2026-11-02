@@ -1,0 +1,17 @@
+{{> header eyebrow="Email verification" title="Your verification code"}}
+<p style="{{p1Style}}">Hi <strong style="{{strongStyle}}">{{name}}</strong>, enter this code in {{appName}} to confirm it&rsquo;s you.</p>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 14px 0;">
+  <tr>
+    {{#each (chars otp)}}
+      <td class="otp-gap" style="padding-right: 6px;">
+        <div class="otp-digit" style="{{@root.otpDigitStyle}}">{{this}}</div>
+      </td>
+    {{/each}}
+  </tr>
+</table>
+<p style="{{smallStyle}}">This code expires in <span style="{{monoStyle}}">{{expiryMinutes}} minutes</span>.</p>
+
+{{> infoBanner text="If you didn&rsquo;t request this code, you can ignore this email. Your account remains secure."}}
+
+{{> footer text="This is an automated message. Please do not reply."}}

@@ -1,0 +1,6 @@
+{{> header eyebrow="Invitation" title="You’ve been invited to join an organization"}}
+<p style="{{p1Style}}">{{#if inviterName}}<strong style="{{strongStyle}}">{{inviterName}}</strong> invited you to join {{/if}}{{#unless inviterName}}You were invited to join {{/unless}}<strong style="{{strongStyle}}">{{organizationName}}</strong>{{#if role}} as {{role}}{{/if}}. Log in to your existing PreventaTri account and accept the invitation. Your password stays the same.</p>
+
+{{> button url=actionButton.url label=actionButton.label}}
+
+{{> footer text="You received this email because someone invited your PreventaTri account to an organization. If you weren&rsquo;t expecting it, you can ignore this email and nothing will change."}}

@@ -1,0 +1,92 @@
+{
+  "name": "desolint-backend",
+  "version": "0.0.1",
+  "description": "Desol Int. app - Backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx prisma migrate deploy && node --require dotenv/config --require @aws/aws-distro-opentelemetry-node-autoinstrumentation/register index.js",
+    "dev": "nodemon --require dotenv/config --require @aws/aws-distro-opentelemetry-node-autoinstrumentation/register index.js",
+    "staging": "nodemon --require dotenv/config --require @aws/aws-distro-opentelemetry-node-autoinstrumentation/register index.js",
+    "prod": "node --require dotenv/config --require @aws/aws-distro-opentelemetry-node-autoinstrumentation/register index.js",
+    "test": "jest --watchAll --detectOpenHandles",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "",
+    ""
+  ],
+  "author": "Amjad Majed",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.971.0",
+    "@aws-sdk/client-secrets-manager": "^3.975.0",
+    "@aws-sdk/client-xray": "^3.971.0",
+    "@aws-sdk/lib-storage": "^3.971.0",
+    "@aws-sdk/s3-request-presigner": "^3.971.0",
+    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "^0.8.1",
+    "@bull-board/api": "^8.1.2",
+    "@bull-board/express": "^8.1.2",
+    "@prisma/adapter-pg": "^7.3.0",
+    "@prisma/client": "^7.3.0",
+    "@sentry/node": "^10.34.0",
+    "@sentry/profiling-node": "^10.34.0",
+    "bcrypt": "^6.0.0",
+    "body-parser": "^2.2.2",
+    "bullmq": "^5.76.10",
+    "config": "^4.2.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "cron": "^4.4.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "fast-xml-parser": "^5.2.5",
+    "handlebars": "^4.7.8",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
+    "mongoose": "^9.1.4",
+    "multer": "^2.0.2",
+    "prisma": "^7.3.0",
+    "resend": "^6.7.0",
+    "socket.io": "^4.8.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "twilio": "^5.11.2",
+    "ua-parser-js": "^2.0.10",
+    "winston": "^3.19.0",
+    "winston-transport-sentry-node": "^3.0.0",
+    "yup": "^1.7.1"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "engines": {
+    "node": ">=22.22.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-import": "^2.32.0",
+    "globals": "^17.0.0",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "lint-staged": "^16.2.7",
+    "mongodb-memory-server": "^11.0.1",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.8.0",
+    "supertest": "^7.2.2"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx,js,jsx}": [
+      "eslint --max-warnings=0",
+      "prettier --write"
+    ],
+    "**/*.{json,md,css,scss}": [
+      "prettier --write"
+    ]
+  }
+}
