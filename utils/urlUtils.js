@@ -95,6 +95,10 @@ const getDomainInfo = ({url}) => {
  * getCookieDomain("https://blog.example.co.uk") -> ".example.co.uk"
  */
 const getCookieDomain = ({url}) => {
+  // Hosts on a public suffix (e.g. onrender.com) cannot hold a domain cookie.
+  // With this flag the cookie stays host-only for the host the browser calls.
+  if (process.env.COOKIE_DOMAIN_DISABLED === 'true') return undefined;
+
   const {baseDomain, isSubdomain} = getDomainInfo({url});
   const cookieDomain = isSubdomain ? `.${baseDomain}` : baseDomain;
 
