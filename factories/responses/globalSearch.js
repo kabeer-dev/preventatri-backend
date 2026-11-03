@@ -29,8 +29,8 @@ const prepareStaffResult = ({membership}) => {
   return {
     id: profile.id,
     type: role,
-    firstName: user.firstName ?? null,
-    lastName: user.lastName ?? null,
+    firstName: membership.firstName ?? null,
+    lastName: membership.lastName ?? null,
     email: user.email ?? null,
     location: null,
   };

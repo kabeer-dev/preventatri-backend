@@ -72,12 +72,16 @@ const CAREGIVER_SOURCES_VALUES = Object.values(CAREGIVER_SOURCES).map(
 
 // Sort fields for caregiver list endpoint
 // Maps display field names to actual database field names
-// User fields (firstName, lastName, email, phoneNo) are accessed via user relation
+// Email is on the user relation; names and phone are per organization on the
+// userOrganization relation. `value` stays the public sortBy.
 const CAREGIVERS_SORT_FIELDS = {
-  firstName: {value: 'user.firstName', searchValue: 'user.firstName'},
-  lastName: {value: 'user.lastName', searchValue: 'user.lastName'},
+  firstName: {
+    value: 'user.firstName',
+    searchValue: 'userOrganization.firstName',
+  },
+  lastName: {value: 'user.lastName', searchValue: 'userOrganization.lastName'},
   email: {value: 'user.email', searchValue: 'user.email'},
-  phoneNo: {value: 'user.phoneNo', searchValue: 'user.phoneNo'},
+  phoneNo: {value: 'user.phoneNo', searchValue: 'userOrganization.phoneNo'},
   status: {value: 'status', searchValue: 'status'},
   createdAt: {value: 'createdAt', searchValue: 'createdAt'},
 };

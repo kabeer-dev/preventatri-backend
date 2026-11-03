@@ -1,9 +1,14 @@
 const {modelConstants} = require('../constants');
 
+const {
+  buildUserMembershipsSelect,
+} = require('../constants/assessmentConstants');
+
 const {OPEN_ESCALATION_STATUSES} = require('../constants/escalationConstants');
 const {RISK_SCORE_THRESHOLDS} = require('../constants/riskCalcConstants');
 
 const {PrismaFactory} = require('../factories');
+const {withOrganizationMember} = require('../factories/responses/workItems');
 
 const logger = require('../middleware/loggerMiddleware');
 
@@ -59,12 +64,20 @@ module.exports = class TriageEngineServices {
           // `submissionId` is the target when navigating an AUTO alert to its
           // submission detail page (MANUAL alerts have no submission). The
           // escalation's acknowledgedAt stops the alert's timer once accepted;
-          // it is flattened to acceptedAt below.
+          // it is flattened to acceptedAt below. The submitter's name is the
+          // one they have in this organization, read from their memberships.
           fieldsInclusion: {
             include: {
               type: true,
               submissionId: true,
               escalation: {select: {acknowledgedAt: true}},
+              submitter: {
+                select: {
+                  userOrganizations: buildUserMembershipsSelect({
+                    fields: ['firstName', 'lastName'],
+                  }),
+                },
+              },
             },
           },
         }),
@@ -81,6 +94,10 @@ module.exports = class TriageEngineServices {
           ? flagsResult.docs.map(({escalation, ...alert}) =>
               Object.assign(alert, {
                 acceptedAt: escalation?.acknowledgedAt || null,
+                submitter: withOrganizationMember({
+                  user: alert.submitter,
+                  organizationId,
+                }),
               })
             )
           : [],

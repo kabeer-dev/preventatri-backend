@@ -20,8 +20,8 @@ const AMBIGUOUS_COORDINATOR = Object.freeze({ambiguous: true});
 /**
  * @param {Object} params
  * @param {Object[]} params.profiles - {id, userId, hhaCoordinatorId, status,
- *   isDeleted, user: {firstName, lastName, isVerified}} for the org's HHA
- *   case managers.
+ *   isDeleted, user: {isVerified}, userOrganization: {firstName, lastName}}
+ *   for the org's HHA case managers.
  * @returns {{byName: Map, byHhaId: Map, byProfileId: Map}}
  */
 const buildCoordinatorLookup = ({profiles}) => {
@@ -48,7 +48,10 @@ const buildCoordinatorLookup = ({profiles}) => {
     }
 
     const name = normalizeCoordinatorName({
-      name: [profile.user?.firstName, profile.user?.lastName]
+      name: [
+        profile.userOrganization?.firstName,
+        profile.userOrganization?.lastName,
+      ]
         .filter(Boolean)
         .join(' '),
     });

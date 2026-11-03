@@ -5,10 +5,25 @@ const {
 } = require('../../constants/responses/success/notifications');
 
 const NotificationsHelpers = require('../../helpers/notificationsHelpers');
+const {withMembershipDetails} = require('../../utils/userUtils');
 
 module.exports = class NotificationsResponsesFactories {
   static formatNotification({notification}) {
     return NotificationsHelpers.formatForClient({notification});
+  }
+
+  // The recipient's name and role in the listed organization (its only loaded
+  // membership).
+  static formatRecipient({recipient}) {
+    const membership = recipient.userOrganizations?.[0];
+    const person = withMembershipDetails({user: recipient, membership});
+
+    return {
+      id: recipient.id,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      role: membership?.role,
+    };
   }
 
   static notificationsMarkedRead({count}) {
@@ -45,12 +60,9 @@ module.exports = class NotificationsResponsesFactories {
             NotificationsResponsesFactories.formatNotification({notification}),
             {
               recipient: notification.recipient
-                ? {
-                    id: notification.recipient.id,
-                    firstName: notification.recipient.firstName,
-                    lastName: notification.recipient.lastName,
-                    role: notification.recipient.userOrganizations?.[0]?.role,
-                  }
+                ? NotificationsResponsesFactories.formatRecipient({
+                    recipient: notification.recipient,
+                  })
                 : null,
             }
           )

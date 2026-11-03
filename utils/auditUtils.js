@@ -8,6 +8,7 @@
  * enrichAuditLogsPage.
  */
 
+const {withMembershipDetails} = require('./userUtils');
 const {modelConstants} = require('../constants');
 
 const {
@@ -226,8 +227,14 @@ module.exports.enrichAuditLogsPage = async ({logs}) => {
     const systemActorName =
       !log.userId && context.trigger === 'SYSTEM' ? 'System' : null;
 
-    const actorName = user
-      ? [user.firstName, user.lastName].filter(Boolean).join(' ') || null
+    // The name the actor has in the log's organization. Only someone with no
+    // membership there (a super admin) reads with the account's own name.
+    const actorPerson = withMembershipDetails({user, membership});
+
+    const actorName = actorPerson
+      ? [actorPerson.firstName, actorPerson.lastName]
+          .filter(Boolean)
+          .join(' ') || null
       : systemActorName;
     const actorRoleLabel = formatAuditRoleLabel({role: membership?.role});
 

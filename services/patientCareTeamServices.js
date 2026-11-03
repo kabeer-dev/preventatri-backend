@@ -18,7 +18,8 @@ const {
 
 const {MODELS} = modelConstants;
 
-const PERSON_SELECT = {id: true, firstName: true, lastName: true, email: true};
+// Names are per organization: read off the membership, email off the account.
+const PERSON_SELECT = {id: true, email: true};
 
 // Picker order: the people closest to the patient first.
 const CARE_TEAM_ROLE_ORDER = [
@@ -200,7 +201,13 @@ module.exports = class PatientCareTeamServices {
           organizationId,
           isActive: true,
         },
-        fieldsInclusion: {include: {user: {select: PERSON_SELECT}}},
+        fieldsInclusion: {
+          include: {
+            firstName: true,
+            lastName: true,
+            user: {select: PERSON_SELECT},
+          },
+        },
         options: {bypassExtraQueries: true},
         tx,
       });
@@ -213,8 +220,8 @@ module.exports = class PatientCareTeamServices {
           userId: userOrg.userId,
           role: userOrg.role,
           careTeamRole: roleByUserId.get(userOrg.userId),
-          firstName: userOrg.user?.firstName || null,
-          lastName: userOrg.user?.lastName || null,
+          firstName: userOrg.firstName || null,
+          lastName: userOrg.lastName || null,
           email: userOrg.user?.email || null,
         }))
         .sort(

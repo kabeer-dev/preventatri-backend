@@ -1,6 +1,8 @@
 // Response shaping shared by follow-up tasks and supervisory visits: people,
 // assignees and history events look the same on both.
 
+const {withMembershipDetails} = require('../../utils/userUtils');
+
 const findMeta = ({catalog, value}) =>
   value ? Object.values(catalog).find((m) => m.value === value) || null : null;
 
@@ -14,12 +16,86 @@ const formatPerson = ({user}) =>
       }
     : null;
 
+/**
+ * A plain user (selected with buildUserMembershipsSelect) with the name, phone
+ * and address they have in one organization. The membership list is dropped,
+ * so other organizations' details never reach a response.
+ */
+const withOrganizationMember = ({user, organizationId}) => {
+  if (!user) return user;
+
+  const {userOrganizations, ...account} = user;
+
+  const membership = (userOrganizations || []).find(
+    (entry) => entry.organizationId === organizationId
+  );
+
+  return withMembershipDetails({user: account, membership});
+};
+
+/**
+ * A profile whose `user` carries the profile's own membership details, with
+ * the `userOrganization` it was read from dropped. A profile read with only
+ * its membership gets a `user` holding just those details.
+ */
+const withProfileMember = ({profile}) => {
+  if (!profile) return profile;
+
+  const {userOrganization, ...rest} = profile;
+  if (!rest.user && !userOrganization) return rest;
+
+  return Object.assign(rest, {
+    user: withMembershipDetails({
+      user: rest.user || {},
+      membership: userOrganization,
+    }),
+  });
+};
+
+const WORK_ITEM_PEOPLE_KEYS = [
+  'createdByUser',
+  'completedByUser',
+  'reviewedByUser',
+  'cancelledByUser',
+];
+
+/**
+ * A task or visit whose plain-user people (creator, completer, reviewer,
+ * canceller, event actors) read as they are in its organization. Mutates and
+ * returns the item; safe on a null one.
+ */
+const withWorkItemPeople = ({item}) => {
+  if (!item) return item;
+
+  const {organizationId} = item;
+
+  WORK_ITEM_PEOPLE_KEYS.forEach((key) => {
+    if (item[key]) {
+      item[key] = withOrganizationMember({user: item[key], organizationId});
+    }
+  });
+
+  (item.events || []).forEach((event) => {
+    if (event.actor) {
+      event.actor = withOrganizationMember({user: event.actor, organizationId});
+    }
+  });
+
+  return item;
+};
+
+// The membership is the person in that organization: names come from it.
 const formatAssignee = ({userOrg}) =>
   userOrg
     ? {
         userOrgId: userOrg.id,
         role: userOrg.role,
-        user: formatPerson({user: userOrg.user}),
+        user: formatPerson({
+          user: withMembershipDetails({
+            user: userOrg.user,
+            membership: userOrg,
+          }),
+        }),
       }
     : null;
 
@@ -88,6 +164,9 @@ const formatChecklistAnswer = ({answer, questionMap}) => ({
 module.exports = {
   findMeta,
   formatPerson,
+  withOrganizationMember,
+  withProfileMember,
+  withWorkItemPeople,
   formatAssignee,
   formatWorkItemEvent,
   formatFlagSource,

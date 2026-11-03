@@ -3,9 +3,12 @@ const sendEmail = require('../send');
 const {
   accountVerificationTokenExpiry,
 } = require('../../../constants/generalConstant');
+const {withOrganizationDetails} = require('../../userUtils');
 
 module.exports = async ({user, verifyUrl}) => {
-  const {email, firstName, lastName} = user;
+  // Account-level message: the name in the primary organization.
+  const {email} = user;
+  const {firstName, lastName} = await withOrganizationDetails({user});
   const name = `${firstName} ${lastName}`;
 
   const expiryHours = parseInt(accountVerificationTokenExpiry, 10) || 1;

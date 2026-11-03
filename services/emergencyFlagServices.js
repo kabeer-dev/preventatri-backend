@@ -1,6 +1,11 @@
 const {modelConstants} = require('../constants');
 
 const {
+  buildMemberNameWhere,
+  buildUserMembershipsSelect,
+} = require('../constants/assessmentConstants');
+
+const {
   ESCALATION_STATUSES,
   ESCALATION_ACTIONS,
 } = require('../constants/escalationConstants');
@@ -12,6 +17,7 @@ const {
   SUBMISSION_FLAG_TYPE,
 } = require('../constants/submissionFlagConstants');
 const {PrismaFactory} = require('../factories');
+const {withOrganizationMember} = require('../factories/responses/workItems');
 const {flagSubmissionEvidenceSelect} = require('../utils/assessmentsUtils');
 
 const {
@@ -26,6 +32,7 @@ const {
 } = require('../utils/nursePatientScopeUtils');
 const {patientRecordSelect} = require('../utils/patientUtils');
 const {wrapWithPrismaTransaction} = require('../utils/prismaTransactionUtils');
+const {getExtraContext} = require('../utils/requestContext');
 
 // A nurse sees the flags of their patients, plus every flag escalated to them
 // or accepted by them, even when the patient is outside their regions.
@@ -41,6 +48,49 @@ const buildNurseFlagScopeClauses = ({nurseScope}) => [
   },
 ];
 
+// A plain user's memberships, read down to the flag's organization below.
+const memberSelect = ({fields}) => ({
+  select: {userOrganizations: buildUserMembershipsSelect({fields})},
+});
+
+const SUBMITTER_NAME_SELECT = memberSelect({fields: ['firstName', 'lastName']});
+
+/**
+ * Names and phones are kept per organization: everyone on the flag reads as
+ * they are in the flag's organization.
+ */
+const withFlagPeople = ({emergencyFlag}) => {
+  if (!emergencyFlag) return emergencyFlag;
+
+  const {organizationId} = emergencyFlag;
+
+  ['submitter', 'voider'].forEach((key) => {
+    if (emergencyFlag[key]) {
+      emergencyFlag[key] = withOrganizationMember({
+        user: emergencyFlag[key],
+        organizationId,
+      });
+    }
+  });
+
+  const response = emergencyFlag.escalation?.response;
+  if (response?.submitter) {
+    response.submitter = withOrganizationMember({
+      user: response.submitter,
+      organizationId,
+    });
+  }
+
+  return emergencyFlag;
+};
+
+const withFlagPeopleResult = ({result}) =>
+  result?.doc
+    ? Object.assign(result, {
+        doc: withFlagPeople({emergencyFlag: result.doc}),
+      })
+    : result;
+
 module.exports = class EmergencyFlagServices {
   static async getEmergencyFlagById({
     id,
@@ -53,15 +103,24 @@ module.exports = class EmergencyFlagServices {
       if (submittedBy) query.submittedBy = submittedBy;
 
       const fieldsInclusion = includeFullDetails
-        ? {include: ['images', 'audioNote', 'description']}
+        ? {
+            include: {
+              images: true,
+              audioNote: true,
+              description: true,
+              submitter: SUBMITTER_NAME_SELECT,
+            },
+          }
         : options.fieldsInclusion;
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.RED_FLAG,
         query,
         options,
         fieldsInclusion,
       });
+
+      return withFlagPeopleResult({result});
     } catch (error) {
       return {success: false, doc: null, error};
     }
@@ -93,23 +152,15 @@ module.exports = class EmergencyFlagServices {
 
       // Every viewer who can open the flag sees the full escalation chain, so
       // staff newly assigned to the patient see how earlier flags were handled.
+      // Assignees are memberships: the name is the one they have here.
       const eventsInclusion = {
         orderBy: {assignedAt: 'asc'},
         include: {
-          assignee: {
-            include: {
-              user: {
-                select: {
-                  firstName: true,
-                  lastName: true,
-                },
-              },
-            },
-          },
+          assignee: {select: {firstName: true, lastName: true}},
         },
       };
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.RED_FLAG,
         query,
         fieldsInclusion: {
@@ -120,19 +171,13 @@ module.exports = class EmergencyFlagServices {
             patient: {select: patientRecordSelect},
             submitter: {
               select: {
-                firstName: true,
-                lastName: true,
                 email: true,
-                address: true,
-                phoneNo: true,
+                userOrganizations: buildUserMembershipsSelect({
+                  fields: ['firstName', 'lastName', 'address', 'phoneNo'],
+                }),
               },
             },
-            voider: {
-              select: {
-                firstName: true,
-                lastName: true,
-              },
-            },
+            voider: SUBMITTER_NAME_SELECT,
             submission: {select: flagSubmissionEvidenceSelect},
             escalation: {
               include: {
@@ -141,31 +186,21 @@ module.exports = class EmergencyFlagServices {
                 // userId decides isAssignedToViewer; the name is shown as the
                 // current owner on the resolution card.
                 currentAssignee: {
-                  select: {
-                    userId: true,
-                    user: {select: {firstName: true, lastName: true}},
-                  },
+                  select: {userId: true, firstName: true, lastName: true},
                 },
                 acknowledgedBy: {
-                  select: {
-                    user: {select: {firstName: true, lastName: true}},
-                  },
+                  select: {firstName: true, lastName: true},
                 },
                 response: {
-                  include: {
-                    submitter: {
-                      select: {
-                        firstName: true,
-                        lastName: true,
-                      },
-                    },
-                  },
+                  include: {submitter: SUBMITTER_NAME_SELECT},
                 },
               },
             },
           },
         },
       });
+
+      return withFlagPeopleResult({result});
     } catch (error) {
       return {success: false, doc: null, error};
     }
@@ -388,14 +423,23 @@ module.exports = class EmergencyFlagServices {
 
       const nameClause = buildNameSearchClause({
         name: search,
-        fields: [
-          'patient.firstName',
-          'patient.lastName',
-          'submitter.firstName',
-          'submitter.lastName',
-        ],
+        fields: ['patient.firstName', 'patient.lastName'],
       });
       if (nameClause) {
+        // The submitter is searched by the name they have in this
+        // organization, not by another organization's. The clause has one
+        // entry per word, in order.
+        const organizationId = getExtraContext().queries?.organizationId;
+        const tokens = search.trim().split(/\s+/);
+
+        nameClause.AND.forEach((tokenClause, index) => {
+          tokenClause.OR.push({
+            submitter: buildMemberNameWhere({
+              token: tokens[index],
+              organizationId,
+            }),
+          });
+        });
         Object.assign(query, nameClause);
       }
 
@@ -414,12 +458,15 @@ module.exports = class EmergencyFlagServices {
         query,
         options: safeMerge({originalObj: options, newObj: queryOptions}),
         fieldsInclusion: options.fieldsInclusion || {
-          include: {escalation: {select: {acknowledgedAt: true}}},
+          include: {
+            escalation: {select: {acknowledgedAt: true}},
+            submitter: SUBMITTER_NAME_SELECT,
+          },
         },
       });
 
       const docs = (result.docs || []).map(({escalation, ...emergencyFlag}) =>
-        Object.assign(emergencyFlag, {
+        Object.assign(withFlagPeople({emergencyFlag}), {
           acceptedAt: escalation?.acknowledgedAt || null,
         })
       );

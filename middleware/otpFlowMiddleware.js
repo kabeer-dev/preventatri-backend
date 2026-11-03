@@ -91,7 +91,10 @@ module.exports = async (req, res, next) => {
           originalObj: retrievedUser,
           newObj: {
             email: inputData.email ?? retrievedUser.email,
-            phoneNo: inputData.phoneNo ?? retrievedUser.phoneNo,
+
+            // A new number is the one verified; otherwise the phone the
+            // person has in the session's organization.
+            phoneNo: inputData.phoneNo ?? user.phoneNo,
           },
         }),
         OTPs: {email: plainOtpForEmail, phone: plainOtpForPhone},

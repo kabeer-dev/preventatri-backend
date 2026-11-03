@@ -314,6 +314,21 @@ module.exports = class UsersController {
 
     if (!success) throw updateErr;
 
+    // The name they entered is their name in the organization that invited them.
+    const invitedOrganizationId =
+      user.currentActiveOrganization?.organizationId;
+
+    if (invitedOrganizationId && (firstName || lastName)) {
+      const {error: membershipErr} =
+        await UsersServices.updateMembershipDetails({
+          userId: user.id,
+          organizationId: invitedOrganizationId,
+          data: {firstName, lastName},
+        });
+
+      if (membershipErr) throw membershipErr;
+    }
+
     // The person can log in now, so they get the patients HHAeXchange assigns them.
     const assignedPatientCount =
       await HhaSyncWorklistServices.applyPendingLinksForUser({userId: user.id});
@@ -1428,9 +1443,17 @@ module.exports = class UsersController {
       }
     });
 
+    // Name, phone and address belong to the organization the person is in now;
+    // only email, password and language are the account's.
+    const membershipData = userUtils.pickMembershipDetails({data: updateData});
+
+    const accountData = Object.fromEntries(
+      Object.entries(updateData).filter(([field]) => !(field in membershipData))
+    );
+
     const {error: updatingUserErr} = await UsersServices.updateOne({
       id: loggedInUser.id,
-      data: updateData,
+      data: accountData,
     });
 
     if (isDocumentDuplicationError({error: updatingUserErr})) {
@@ -1438,6 +1461,17 @@ module.exports = class UsersController {
     }
 
     if (updatingUserErr) throw updatingUserErr;
+
+    if (Object.keys(membershipData).length > 0) {
+      const {error: updatingMembershipErr} =
+        await UsersServices.updateMembershipDetails({
+          userId: loggedInUser.id,
+          organizationId: loggedInUser.currentActiveOrganization.organizationId,
+          data: membershipData,
+        });
+
+      if (updatingMembershipErr) throw updatingMembershipErr;
+    }
 
     // Logout from all devices: delete every OTHER session for this user.
     // The current session (making this very request) is deliberately kept

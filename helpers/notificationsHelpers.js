@@ -13,6 +13,8 @@ const {
   NOTIFICATION_PERFORMER_TYPES,
 } = require('../constants/notificationConstants');
 
+const {withMembershipDetails} = require('../utils/userUtils');
+
 // Config keys that switch each external channel on or off system-wide.
 const EXTERNAL_CHANNEL_TOGGLE_KEYS = {
   [NOTIFICATION_CHANNELS.SMS]: 'smsNotificationsEnabled',
@@ -152,7 +154,14 @@ module.exports = class NotificationsHelpers {
    * @returns {object} client-facing notification object
    */
   static formatForClient({notification}) {
-    const {performer} = notification;
+    // The performer's name as they have it in the notification's organization.
+    const performer = withMembershipDetails({
+      user: notification.performer,
+      membership: notification.performer?.userOrganizations?.find(
+        (membership) =>
+          membership.organizationId === notification.organizationId
+      ),
+    });
 
     return {
       id: notification.id,

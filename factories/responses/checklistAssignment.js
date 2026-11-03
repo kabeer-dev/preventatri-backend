@@ -1,5 +1,6 @@
 const AppResponse = require('./app');
 const AssessmentsResponsesFactories = require('./assessments');
+const {withOrganizationMember, withProfileMember} = require('./workItems');
 
 const {
   CHECKLIST_ASSIGNMENT_SUCCESS_TYPES,
@@ -25,8 +26,15 @@ module.exports = class ChecklistAssignmentResponsesFactories {
           })
         : undefined,
       patient: assignment.patient,
-      caregiverProfile: assignment.caregiverProfile,
-      assigner: assignment.assigner,
+
+      // Names are per organization: both read as they are in this one.
+      caregiverProfile: withProfileMember({
+        profile: assignment.caregiverProfile,
+      }),
+      assigner: withOrganizationMember({
+        user: assignment.assigner,
+        organizationId: assignment.organizationId,
+      }),
       type: assignment.type,
     };
   }

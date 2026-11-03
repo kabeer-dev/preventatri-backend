@@ -74,6 +74,8 @@ async function seedSuperAdmin({
         organizationId: organization.id,
         role: SYSTEM_ROLES.super_admin.value,
         isActive: true,
+        firstName,
+        lastName,
       },
     });
 

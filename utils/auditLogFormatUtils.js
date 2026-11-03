@@ -365,7 +365,8 @@ const SELF_ACTION_VALUES = [
  * Best-effort display name for the record a log's before/after snapshot
  * represents. Tries, in order: a top-level person name (firstName/lastName),
  * a top-level "name" or "title" field, then the same on a handful of common
- * nested relations (patient, assignee, user, checklistTemplate). Returns null
+ * nested relations (patient, assignee, userOrganization, user,
+ * checklistTemplate). Returns null
  * when nothing recognizable is found, so the caller can fall back to the
  * resource type label instead.
  */
@@ -384,7 +385,9 @@ module.exports.extractAuditSubjectName = ({snapshot}) => {
   if (typeof snapshot.title === 'string' && snapshot.title)
     return snapshot.title;
 
-  for (const key of ['patient', 'assignee', 'user']) {
+  // A profile's name is its membership's (userOrganization), kept per
+  // organization; `user` only covers snapshots stored before that.
+  for (const key of ['patient', 'assignee', 'userOrganization', 'user']) {
     const name = personName(snapshot[key]);
     if (name) return name;
   }

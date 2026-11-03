@@ -339,7 +339,7 @@ module.exports = class NursesServices {
 
       const nameClause = buildNameSearchClause({
         name,
-        fields: ['user.firstName', 'user.lastName'],
+        fields: ['userOrganization.firstName', 'userOrganization.lastName'],
       });
       if (nameClause) {
         Object.assign(query, nameClause);

@@ -155,7 +155,9 @@ const HIGH_RISK_PATIENTS_SQL = ({organizationId, period, scope}) => {
       LEFT JOIN case_manager_patients cmp ON cmp."patientId" = p."id"
       LEFT JOIN case_manager_profiles cmpr ON cmpr."id" = cmp."caseManagerProfileId"
         AND cmpr."deleted_at" IS NULL
-      LEFT JOIN users cmu ON cmu."id" = cmpr."userId"
+      LEFT JOIN user_organizations cmu ON cmu."userId" = cmpr."userId"
+        AND cmu."organizationId" = ${organizationId}
+        AND cmu."deleted_at" IS NULL
       LEFT JOIN alert_counts ac ON ac.patient_id = p."id"
       LEFT JOIN trends w ON w.patient_id = p."id"
       LEFT JOIN overdue od ON od.patient_id = p."id"

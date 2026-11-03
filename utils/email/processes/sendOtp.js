@@ -4,9 +4,12 @@ const {
   OTP_EXPIRE_TIME_IN_SECONDS,
 } = require('../../../constants/generalConstant');
 const {convertSecondsToMinutes} = require('../../general');
+const {withOrganizationDetails} = require('../../userUtils');
 
 module.exports = async ({user, otp}) => {
-  const {email, firstName, lastName} = user;
+  // Account-level message: the name in the primary organization.
+  const {email} = user;
+  const {firstName, lastName} = await withOrganizationDetails({user});
   const name = `${firstName} ${lastName}`;
 
   const expiryMinutes = convertSecondsToMinutes({

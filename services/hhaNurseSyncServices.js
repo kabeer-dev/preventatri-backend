@@ -95,6 +95,7 @@ const {
   isAdoptableProfile,
 } = require('../utils/hhaExchange/userProfileSyncUtils');
 const {wrapWithPrismaTransaction} = require('../utils/prismaTransactionUtils');
+const {pickMembershipDetails} = require('../utils/userUtils');
 
 /** The field name the shared split helper matches profiles on. */
 const HHA_NURSE_ID_FIELD = 'hhaNurseId';
@@ -262,6 +263,7 @@ const updateChangedNurse = async ({
   try {
     ({before} = await updateUserAndProfile({
       userId: existing.userId,
+      organizationId: existing.organizationId,
       profileModel: modelConstants.MODELS.NURSE_PROFILE,
       profileId: existing.id,
 
@@ -349,16 +351,42 @@ const reclassifyCaregiverAsNurse = async ({
           tx,
         });
 
+        // Name, phone and address are this organization's, on the membership.
+        const nurseUserFields = toUpdatableNurseUserFields({
+          userFields: entry.userFields,
+        });
+
+        const membershipFields = pickMembershipDetails({data: nurseUserFields});
+
+        const accountFields = Object.fromEntries(
+          Object.entries(nurseUserFields).filter(
+            ([field]) => !(field in membershipFields)
+          )
+        );
+
         const {success: userUpdated, error: userError} =
           await PrismaFactory.updateOne({
             model: modelConstants.MODELS.USER,
             query: {id: caregiverProfile.userId},
-            data: toUpdatableNurseUserFields({userFields: entry.userFields}),
+            data: accountFields,
             options: {bypassExtraQueries: true, includeDeleted: true},
             tx,
           });
 
         if (!userUpdated) throw userError || new Error('User update failed');
+
+        const {success: membershipUpdated, error: membershipError} =
+          await PrismaFactory.updateMany({
+            model: modelConstants.MODELS.USER_ORGANIZATION,
+            query: {userId: caregiverProfile.userId, organizationId},
+            data: membershipFields,
+            options: {bypassExtraQueries: true, includeDeleted: true},
+            tx,
+          });
+
+        if (!membershipUpdated) {
+          throw membershipError || new Error('Membership update failed');
+        }
 
         // A nurse profile may already exist for this user -- typically one an
         // admin archived before the caregiver import happened. Claim it in

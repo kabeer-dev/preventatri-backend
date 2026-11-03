@@ -9,6 +9,7 @@ const {
 const {
   isPlaceholderEmail,
 } = require('../../utils/hhaExchange/placeholderEmailUtils');
+const {withMembershipDetails} = require('../../utils/userUtils');
 
 module.exports = class NursesResponsesFactories {
   /**
@@ -77,22 +78,28 @@ module.exports = class NursesResponsesFactories {
 
     // Include user info if available
     if (includeUser && nurseProfile.user) {
+      // Person details are per organization: take them from the membership.
+      const user = withMembershipDetails({
+        user: nurseProfile.user,
+        membership: nurseProfile.userOrganization,
+      });
+
       formatted.user = {
-        id: nurseProfile.user.id,
-        firstName: nurseProfile.user.firstName,
-        lastName: nurseProfile.user.lastName,
-        email: nurseProfile.user.email,
-        phoneNo: nurseProfile.user.phoneNo,
-        address: nurseProfile.user.address,
-        city: nurseProfile.user.city,
-        state: nurseProfile.user.state,
-        zipCode: nurseProfile.user.zipCode,
-        isVerified: nurseProfile.user.isVerified,
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNo: user.phoneNo,
+        address: user.address,
+        city: user.city,
+        state: user.state,
+        zipCode: user.zipCode,
+        isVerified: user.isVerified,
 
         // Lets the UI offer the one email edit that is allowed: replacing the
         // synthetic address sync minted for a nurse HHAeXchange had none for.
         isPlaceholderEmail: isPlaceholderEmail({
-          email: nurseProfile.user.email,
+          email: user.email,
         }),
       };
     }

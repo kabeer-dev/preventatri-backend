@@ -30,7 +30,7 @@ const {chunkArray, isDocumentDuplicationError} = require('../general');
 
 const {wrapWithPrismaTransaction} = require('../prismaTransactionUtils');
 const {buildEmailChangeInvalidation} = require('../userHelpers');
-const {getFullName} = require('../userUtils');
+const {getFullName, pickMembershipDetails} = require('../userUtils');
 
 const {
   HHA_EMAIL_CHANGE_SEPARATOR,
@@ -132,6 +132,9 @@ const touchUnchanged = async ({model, ids}) => {
  *
  * @param {Object} params
  * @param {string} params.userId
+ * @param {string} params.organizationId - The organization being synced. Name,
+ *   phone and address are written to the person's membership there, never to
+ *   the account or to another organization.
  * @param {string} params.profileModel - A modelConstants.MODELS value.
  * @param {string} params.profileId
  * @param {Object} params.userData - Updatable `users` columns.
@@ -142,6 +145,7 @@ const touchUnchanged = async ({model, ids}) => {
  */
 const updateUserAndProfile = async ({
   userId,
+  organizationId,
   profileModel,
   profileId,
   userData,
@@ -149,13 +153,31 @@ const updateUserAndProfile = async ({
 }) => {
   return await wrapWithPrismaTransaction({
     fn: async (tx) => {
-      const {doc: userBefore} = await PrismaFactory.findOne({
+      // The person's details are per organization: split them off the account
+      // columns and keep them on this organization's membership.
+      const membershipData = pickMembershipDetails({data: userData});
+
+      const accountData = Object.fromEntries(
+        Object.entries(userData).filter(([field]) => !(field in membershipData))
+      );
+
+      const {doc: accountBefore} = await PrismaFactory.findOne({
         model: modelConstants.MODELS.USER,
         query: {id: userId},
         options: {bypassExtraQueries: true, includeDeleted: true},
-        fieldsInclusion: {includeSpecificFields: Object.keys(userData)},
+        fieldsInclusion: {includeSpecificFields: Object.keys(accountData)},
         tx,
       });
+
+      const {doc: membershipBefore} = await PrismaFactory.findOne({
+        model: modelConstants.MODELS.USER_ORGANIZATION,
+        query: {userId, organizationId},
+        options: {bypassExtraQueries: true, includeDeleted: true},
+        fieldsInclusion: {includeSpecificFields: Object.keys(membershipData)},
+        tx,
+      });
+
+      const userBefore = Object.assign({}, accountBefore, membershipBefore);
 
       const {doc: profileBefore} = await PrismaFactory.findOne({
         model: profileModel,
@@ -173,12 +195,27 @@ const updateUserAndProfile = async ({
         await PrismaFactory.updateOne({
           model: modelConstants.MODELS.USER,
           query: {id: userId},
-          data: userData,
+          data: accountData,
           options: {bypassExtraQueries: true, includeDeleted: true},
           tx,
         });
 
       if (!userUpdated) throw userError || new Error('User update failed');
+
+      if (Object.keys(membershipData).length > 0) {
+        const {success: membershipUpdated, error: membershipError} =
+          await PrismaFactory.updateMany({
+            model: modelConstants.MODELS.USER_ORGANIZATION,
+            query: {userId, organizationId},
+            data: membershipData,
+            options: {bypassExtraQueries: true, includeDeleted: true},
+            tx,
+          });
+
+        if (!membershipUpdated) {
+          throw membershipError || new Error('Membership update failed');
+        }
+      }
 
       const {success: profileUpdated, error: profileError} =
         await PrismaFactory.updateOne({

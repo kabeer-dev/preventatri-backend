@@ -311,10 +311,25 @@ module.exports = class CaseManagersController {
     // Update in transaction
     await wrapWithPrismaTransaction({
       fn: async (tx) => {
-        // Update user fields if provided
-        const userUpdateData = filterUndefined({
-          obj: Object.assign({firstName, lastName, phoneNo}, emailUpdate),
+        // Name and phone are the person's details in THIS organization only;
+        // the account keeps just the email.
+        const membershipUpdateData = filterUndefined({
+          obj: {firstName, lastName, phoneNo},
         });
+
+        if (Object.keys(membershipUpdateData).length > 0) {
+          const {error: membershipError} =
+            await UsersServices.updateMembershipDetails({
+              userId: caseManagerProfile.userId,
+              organizationId: caseManagerProfile.organizationId,
+              data: membershipUpdateData,
+              tx,
+            });
+
+          if (membershipError) throw membershipError;
+        }
+
+        const userUpdateData = filterUndefined({obj: emailUpdate});
 
         if (Object.keys(userUpdateData).length > 0) {
           const {error} = await UsersServices.updateOne({

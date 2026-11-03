@@ -42,6 +42,22 @@ const {MODELS} = modelConstants;
 
 const USER_NAME_SELECT = {select: {firstName: true, lastName: true}};
 
+// Names are per organization: a profile's sit on its membership.
+const PROFILE_NAME_SELECT = {userOrganization: USER_NAME_SELECT};
+
+const profileName = ({doc}) => getFullName({user: doc.userOrganization});
+
+// A user's name in one organization, from their membership there.
+const buildUserNameSelect = ({organizationId}) => ({
+  userOrganizations: {
+    where: {organizationId},
+    select: {firstName: true, lastName: true},
+    take: 1,
+  },
+});
+
+const userName = ({doc}) => getFullName({user: doc.userOrganizations?.[0]});
+
 /** Where each resource's HHA id lives here, and how its name is read. */
 const RECORD_SOURCES = {
   [HHAX_SYNC_RESOURCES.PATIENTS.value]: {
@@ -55,22 +71,22 @@ const RECORD_SOURCES = {
     model: MODELS.NURSE_PROFILE,
     hhaIdField: 'hhaNurseId',
     kind: HHA_SYNC_RECORD_KINDS.NURSE,
-    select: {user: USER_NAME_SELECT},
-    toName: ({doc}) => getFullName({user: doc.user}),
+    select: PROFILE_NAME_SELECT,
+    toName: profileName,
   },
   [HHAX_SYNC_RESOURCES.CAREGIVERS.value]: {
     model: MODELS.CAREGIVER_PROFILE,
     hhaIdField: 'hhaCaregiverId',
     kind: HHA_SYNC_RECORD_KINDS.CAREGIVER,
-    select: {user: USER_NAME_SELECT},
-    toName: ({doc}) => getFullName({user: doc.user}),
+    select: PROFILE_NAME_SELECT,
+    toName: profileName,
   },
   [HHAX_SYNC_RESOURCES.COORDINATORS.value]: {
     model: MODELS.CASE_MANAGER_PROFILE,
     hhaIdField: 'hhaCoordinatorId',
     kind: HHA_SYNC_RECORD_KINDS.CASE_MANAGER,
-    select: {user: USER_NAME_SELECT},
-    toName: ({doc}) => getFullName({user: doc.user}),
+    select: PROFILE_NAME_SELECT,
+    toName: profileName,
   },
   [HHAX_SYNC_RESOURCES.VISITS.value]: {
     model: MODELS.HHA_VISIT,
@@ -96,15 +112,15 @@ const REFERENCE_SOURCES = {
   countyId: {model: MODELS.COUNTY, toName: ({doc}) => doc.name},
   primaryNurseProfileId: {
     model: MODELS.NURSE_PROFILE,
-    toName: ({doc}) => getFullName({user: doc.user}),
+    toName: profileName,
   },
   secondaryNurseProfileId: {
     model: MODELS.NURSE_PROFILE,
-    toName: ({doc}) => getFullName({user: doc.user}),
+    toName: profileName,
   },
   [HHA_SYNC_CHANGE_FIELDS.CASE_MANAGER]: {
     model: MODELS.CASE_MANAGER_PROFILE,
-    toName: ({doc}) => getFullName({user: doc.user}),
+    toName: profileName,
   },
   [HHA_SYNC_CHANGE_FIELDS.PRIMARY_REGIONS]: {
     model: MODELS.REGION,
@@ -112,16 +128,15 @@ const REFERENCE_SOURCES = {
   },
   [HHA_SYNC_CHANGE_FIELDS.USER]: {
     model: MODELS.USER,
-    toName: ({doc}) => getFullName({user: doc}),
+    toName: userName,
   },
 };
 
 const REFERENCE_SELECTS = {
   [MODELS.COUNTY]: {id: true, name: true},
   [MODELS.REGION]: {id: true, name: true},
-  [MODELS.USER]: {id: true, firstName: true, lastName: true},
-  [MODELS.NURSE_PROFILE]: {id: true, user: USER_NAME_SELECT},
-  [MODELS.CASE_MANAGER_PROFILE]: {id: true, user: USER_NAME_SELECT},
+  [MODELS.NURSE_PROFILE]: Object.assign({id: true}, PROFILE_NAME_SELECT),
+  [MODELS.CASE_MANAGER_PROFILE]: Object.assign({id: true}, PROFILE_NAME_SELECT),
 };
 
 const isFiltered = ({value}) => value && value !== HHA_SYNC_HISTORY_FILTER_ALL;
@@ -237,7 +252,7 @@ const attachRecords = async ({organizationId, rows}) => {
 };
 
 /** id -> display name for every id a page of link changes mentions. */
-const resolveReferenceNames = async ({changes}) => {
+const resolveReferenceNames = async ({organizationId, changes}) => {
   const idsByModel = new Map();
 
   changes.forEach((row) =>
@@ -262,7 +277,10 @@ const resolveReferenceNames = async ({changes}) => {
     const docs = await findAll({
       model,
       query: {id: {in: Array.from(ids)}},
-      include: REFERENCE_SELECTS[model],
+      include:
+        model === MODELS.USER
+          ? Object.assign({id: true}, buildUserNameSelect({organizationId}))
+          : REFERENCE_SELECTS[model],
     });
 
     const source = Object.values(REFERENCE_SOURCES).find(
@@ -330,7 +348,8 @@ const resolveRelatedUsers = async ({organizationId, rows}) => {
     model: MODELS.USER,
     query: {id: {in: ids}},
     include: Object.assign(
-      {id: true, firstName: true, lastName: true, email: true},
+      {id: true, email: true},
+      buildUserNameSelect({organizationId}),
       buildUserProfileInclude({organizationId})
     ),
   });
@@ -340,7 +359,7 @@ const resolveRelatedUsers = async ({organizationId, rows}) => {
       user.id,
       {
         id: user.id,
-        name: getFullName({user}),
+        name: userName({doc: user}),
         email: user.email,
         profile: toUserProfileRef({user}),
       },
@@ -406,7 +425,7 @@ const resolveConflictHolders = async ({organizationId, rows}) => {
       holders.set(row.id, {
         kind: source.kind,
         id: holder.id,
-        name: getFullName({user: holder.user}),
+        name: profileName({doc: holder}),
       });
     });
   }
@@ -658,7 +677,10 @@ module.exports = class HhaSyncHistoryReadServices {
         take,
       });
 
-      const names = await resolveReferenceNames({changes: docs});
+      const names = await resolveReferenceNames({
+        organizationId,
+        changes: docs,
+      });
 
       return {
         success: true,

@@ -137,9 +137,42 @@ const LATENESS_TRACKED_STATUSES = [
   CHECKLIST_SUBMISSION_STATUSES.REVIEWED.value,
 ];
 
+/**
+ * A plain user's memberships with the given person details, so a reader can
+ * take the ones of the record's organization (withOrganizationMember). Names
+ * and phones are kept per organization, never on the user.
+ */
+const buildUserMembershipsSelect = ({fields}) => ({
+  select: Object.fromEntries(
+    ['organizationId'].concat(fields).map((field) => [field, true])
+  ),
+});
+
+/**
+ * Where-clause for a plain user relation matching one search token against
+ * the name the person has in the organization, never another one's. Without
+ * an organization any of their names matches.
+ */
+const buildMemberNameWhere = ({token, organizationId}) => ({
+  userOrganizations: {
+    some: {
+      organizationId,
+      OR: [
+        {firstName: {contains: token, mode: 'insensitive'}},
+        {lastName: {contains: token, mode: 'insensitive'}},
+      ],
+    },
+  },
+});
+
 // Who scheduled a checklist assignment, as shown on its submissions.
 const CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT = {
-  select: {id: true, firstName: true, lastName: true},
+  select: {
+    id: true,
+    userOrganizations: buildUserMembershipsSelect({
+      fields: ['firstName', 'lastName'],
+    }),
+  },
 };
 
 const SUBMISSION_ATTACHMENT_FILE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
@@ -254,6 +287,8 @@ module.exports = {
   SKIPPABLE_STATUSES,
   VOIDABLE_STATUSES,
   LATENESS_TRACKED_STATUSES,
+  buildUserMembershipsSelect,
+  buildMemberNameWhere,
   CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
   CHECKLIST_SUBMISSIONS_SORT_FIELDS,
   CHECKLIST_SUBMISSIONS_SORT_FIELDS_VALUES,

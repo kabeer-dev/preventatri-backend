@@ -10,10 +10,36 @@
  * - Improves maintainability for future developers
  */
 
-const {CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT} = require('./assessmentConstants');
+const {
+  CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
+  buildUserMembershipsSelect,
+} = require('./assessmentConstants');
 const {modelConstants} = require('./index');
+const {MEMBERSHIP_DETAILS_SELECT} = require('../utils/userUtils');
 
 const {MODELS} = modelConstants;
+
+// A profile's person details (name, phone, address) for its own organization.
+const PROFILE_MEMBERSHIP_RELATION = {select: MEMBERSHIP_DETAILS_SELECT};
+
+// A membership (assignee, caregiver) as a person: the name is its own.
+const MEMBER_PERSON_SELECT = {
+  id: true,
+  role: true,
+  firstName: true,
+  lastName: true,
+  user: {select: {id: true, email: true}},
+};
+
+// A plain user (creator, actor...): the reader takes the name of the record's
+// organization from these memberships (withOrganizationMember).
+const USER_PERSON_SELECT = {
+  id: true,
+  email: true,
+  userOrganizations: buildUserMembershipsSelect({
+    fields: ['firstName', 'lastName'],
+  }),
+};
 
 /**
  * Models that support soft delete (have isDeleted field)
@@ -280,6 +306,16 @@ module.exports = {
             invitationSentAt: true,
             createdAt: true,
             updatedAt: true,
+
+            // The person's name, phone and address in that organization: the
+            // active one is put on the user when it is loaded.
+            firstName: true,
+            lastName: true,
+            phoneNo: true,
+            address: true,
+            city: true,
+            zipCode: true,
+            state: true,
             organization: {
               select: {
                 id: true,
@@ -343,6 +379,15 @@ module.exports = {
         'role',
         'isActive',
         'invitationSentAt',
+
+        // The person's own details in this organization.
+        'firstName',
+        'lastName',
+        'phoneNo',
+        'address',
+        'city',
+        'zipCode',
+        'state',
         'createdAt',
         'updatedAt',
       ],
@@ -350,11 +395,10 @@ module.exports = {
       fieldMappings: {},
 
       relations: {
+        // Name and phone come from the membership itself (defaultFields).
         user: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
             email: true,
           },
         },
@@ -450,6 +494,7 @@ module.exports = {
             updatedAt: true,
           },
         },
+        userOrganization: PROFILE_MEMBERSHIP_RELATION,
         organization: {
           select: {
             id: true,
@@ -476,7 +521,7 @@ module.exports = {
         },
       },
 
-      autoIncludeRelations: ['user', 'regionalNurses'],
+      autoIncludeRelations: ['user', 'userOrganization', 'regionalNurses'],
       relationDependencies: {},
     },
     [MODELS.REGION]: {
@@ -526,11 +571,14 @@ module.exports = {
                 user: {
                   select: {
                     id: true,
-                    firstName: true,
-                    lastName: true,
                     email: true,
                     isVerified: true,
                   },
+                },
+
+                // The name is per organization, so it comes from here.
+                userOrganization: {
+                  select: {firstName: true, lastName: true},
                 },
               },
             },
@@ -727,6 +775,7 @@ module.exports = {
             updatedAt: true,
           },
         },
+        userOrganization: PROFILE_MEMBERSHIP_RELATION,
         organization: {
           select: {
             id: true,
@@ -755,7 +804,7 @@ module.exports = {
         },
       },
 
-      autoIncludeRelations: ['user', 'caregiverPatients'],
+      autoIncludeRelations: ['user', 'userOrganization', 'caregiverPatients'],
       relationDependencies: {},
     },
     [MODELS.CAREGIVER_PATIENT]: {
@@ -868,15 +917,15 @@ module.exports = {
                 user: {
                   select: {
                     id: true,
-                    firstName: true,
-                    lastName: true,
                     email: true,
-                    phoneNo: true,
                     isVerified: true,
                     createdAt: true,
                     updatedAt: true,
                   },
                 },
+
+                // The caregiver's name and phone in this organization.
+                userOrganization: PROFILE_MEMBERSHIP_RELATION,
               },
             },
           },
@@ -925,6 +974,7 @@ module.exports = {
             updatedAt: true,
           },
         },
+        userOrganization: PROFILE_MEMBERSHIP_RELATION,
         organization: {
           select: {
             id: true,
@@ -970,6 +1020,7 @@ module.exports = {
 
       autoIncludeRelations: [
         'user',
+        'userOrganization',
         'caseManagerRegions',
         'caseManagerPatients',
       ],
@@ -1181,14 +1232,8 @@ module.exports = {
               select: {
                 id: true,
                 role: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true,
-                  },
-                },
+                user: {select: {id: true, email: true}},
+                userOrganization: {select: {firstName: true, lastName: true}},
               },
             },
             assigner: CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
@@ -1205,10 +1250,14 @@ module.exports = {
             lastName: true,
           },
         },
+
+        // A plain user: the name is the one of the submission's organization,
+        // put on by AssessmentsServices.
         assignee: {
           select: {
-            firstName: true,
-            lastName: true,
+            userOrganizations: buildUserMembershipsSelect({
+              fields: ['firstName', 'lastName'],
+            }),
           },
         },
         answers: {
@@ -1360,6 +1409,9 @@ module.exports = {
             lastName: true,
           },
         },
+
+        // Names are per organization: the caregiver's comes from the profile's
+        // membership, the assigner's from their membership here.
         caregiverProfile: {
           select: {
             id: true,
@@ -1367,20 +1419,13 @@ module.exports = {
             user: {
               select: {
                 id: true,
-                firstName: true,
-                lastName: true,
                 email: true,
               },
             },
+            userOrganization: {select: {firstName: true, lastName: true}},
           },
         },
-        assigner: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+        assigner: CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
         organization: {
           select: {
             id: true,
@@ -1467,34 +1512,16 @@ module.exports = {
           select: {
             id: true,
             role: true,
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phoneNo: true,
-              },
-            },
+            firstName: true,
+            lastName: true,
+            phoneNo: true,
+            user: {select: {id: true, email: true}},
           },
         },
         caregivers: {
           select: {
             userOrganizationId: true,
-            userOrg: {
-              select: {
-                id: true,
-                role: true,
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true,
-                  },
-                },
-              },
-            },
+            userOrg: {select: MEMBER_PERSON_SELECT},
           },
         },
         submissionFlag: {
@@ -1508,15 +1535,9 @@ module.exports = {
             createdAt: true,
           },
         },
-        createdByUser: {
-          select: {id: true, firstName: true, lastName: true, email: true},
-        },
-        reviewedByUser: {
-          select: {id: true, firstName: true, lastName: true, email: true},
-        },
-        cancelledByUser: {
-          select: {id: true, firstName: true, lastName: true, email: true},
-        },
+        createdByUser: {select: USER_PERSON_SELECT},
+        reviewedByUser: {select: USER_PERSON_SELECT},
+        cancelledByUser: {select: USER_PERSON_SELECT},
         checklistTemplate: {
           select: {
             id: true,
@@ -1553,13 +1574,7 @@ module.exports = {
       fieldMappings: {},
 
       relations: {
-        userOrg: {
-          select: {
-            id: true,
-            role: true,
-            user: {select: {id: true, firstName: true, lastName: true}},
-          },
-        },
+        userOrg: {select: MEMBER_PERSON_SELECT},
       },
 
       autoIncludeRelations: [],
@@ -1586,21 +1601,9 @@ module.exports = {
       fieldMappings: {},
 
       relations: {
-        actor: {select: {id: true, firstName: true, lastName: true}},
-        fromAssignee: {
-          select: {
-            id: true,
-            role: true,
-            user: {select: {id: true, firstName: true, lastName: true}},
-          },
-        },
-        toAssignee: {
-          select: {
-            id: true,
-            role: true,
-            user: {select: {id: true, firstName: true, lastName: true}},
-          },
-        },
+        actor: {select: USER_PERSON_SELECT},
+        fromAssignee: {select: MEMBER_PERSON_SELECT},
+        toAssignee: {select: MEMBER_PERSON_SELECT},
       },
 
       autoIncludeRelations: ['actor', 'fromAssignee', 'toAssignee'],
@@ -1669,15 +1672,10 @@ module.exports = {
           select: {
             id: true,
             role: true,
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phoneNo: true,
-              },
-            },
+            firstName: true,
+            lastName: true,
+            phoneNo: true,
+            user: {select: {id: true, email: true}},
           },
         },
         submissionFlag: {
@@ -1691,22 +1689,14 @@ module.exports = {
             createdAt: true,
           },
         },
-        createdByUser: {
-          select: {id: true, firstName: true, lastName: true, email: true},
-        },
-        cancelledByUser: {
-          select: {id: true, firstName: true, lastName: true, email: true},
-        },
+        createdByUser: {select: USER_PERSON_SELECT},
+        cancelledByUser: {select: USER_PERSON_SELECT},
         caseManagerProfile: {
           select: {
             id: true,
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                email: true,
-                phoneNo: true,
-              },
+            user: {select: {email: true}},
+            userOrganization: {
+              select: {firstName: true, lastName: true, phoneNo: true},
             },
           },
         },
@@ -1759,21 +1749,9 @@ module.exports = {
       fieldMappings: {},
 
       relations: {
-        actor: {select: {id: true, firstName: true, lastName: true}},
-        fromAssignee: {
-          select: {
-            id: true,
-            role: true,
-            user: {select: {id: true, firstName: true, lastName: true}},
-          },
-        },
-        toAssignee: {
-          select: {
-            id: true,
-            role: true,
-            user: {select: {id: true, firstName: true, lastName: true}},
-          },
-        },
+        actor: {select: USER_PERSON_SELECT},
+        fromAssignee: {select: MEMBER_PERSON_SELECT},
+        toAssignee: {select: MEMBER_PERSON_SELECT},
       },
 
       autoIncludeRelations: ['actor', 'fromAssignee', 'toAssignee'],

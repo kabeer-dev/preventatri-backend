@@ -810,9 +810,10 @@ module.exports = class HhaPatientLinkSyncServices {
         include: {
           status: true,
           isDeleted: true,
-          user: {
-            select: {firstName: true, lastName: true, isVerified: true},
-          },
+          user: {select: {isVerified: true}},
+
+          // The name a coordinator is matched by is the one in this org.
+          userOrganization: {select: {firstName: true, lastName: true}},
         },
       },
     });

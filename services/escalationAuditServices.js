@@ -49,29 +49,29 @@ const joinName = ({firstName, lastName}) =>
  * subject of the log), so the "What changed" list stays short.
  */
 module.exports = class EscalationAuditServices {
-  // currentAssigneeId and event assigneeId are UserOrganization ids.
+  // currentAssigneeId and event assigneeId are UserOrganization ids. The
+  // membership carries the person's name in that organization.
   static async getAssignee({userOrgId}) {
     if (!userOrgId) return {userId: null, name: null};
 
     const {doc} = await PrismaFactory.findOne({
       model: modelConstants.MODELS.USER_ORGANIZATION,
       query: {id: userOrgId},
-      fieldsInclusion: {
-        include: {user: {select: {firstName: true, lastName: true}}},
-      },
       options: {bypassExtraQueries: true},
     });
 
-    return {userId: doc?.userId || null, name: joinName(doc?.user || {})};
+    return {userId: doc?.userId || null, name: joinName(doc || {})};
   }
 
-  static async getUserName({userId}) {
+  // The name the person has in the escalation's organization. A removed
+  // member keeps the name they had there.
+  static async getUserName({userId, organizationId}) {
     if (!userId) return null;
 
     const {doc} = await PrismaFactory.findOne({
-      model: modelConstants.MODELS.USER,
-      query: {id: userId},
-      options: {bypassExtraQueries: true},
+      model: modelConstants.MODELS.USER_ORGANIZATION,
+      query: {userId, organizationId},
+      options: {bypassExtraQueries: true, includeDeleted: true},
     });
 
     return joinName(doc || {});
@@ -171,7 +171,10 @@ module.exports = class EscalationAuditServices {
    */
   static async logStarted({escalation, submissionFlag, performedBy}) {
     try {
-      const raisedByName = await this.getUserName({userId: performedBy});
+      const raisedByName = await this.getUserName({
+        userId: performedBy,
+        organizationId: escalation.organizationId,
+      });
 
       await this.write({
         action: AUDIT_OPERATIONS.ESCALATION_STARTED.value,
@@ -333,7 +336,10 @@ module.exports = class EscalationAuditServices {
 
       if (!escalation) return;
 
-      const recipient = await this.getUserName({userId: recipientId});
+      const recipient = await this.getUserName({
+        userId: recipientId,
+        organizationId: escalation.organizationId,
+      });
 
       await this.write({
         action: AUDIT_OPERATIONS.NOTIFICATION_DELIVERY.value,

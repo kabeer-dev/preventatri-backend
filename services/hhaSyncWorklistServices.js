@@ -65,7 +65,7 @@ const {
 const {wrapWithPrismaTransaction} = require('../utils/prismaTransactionUtils');
 const {findReferenceCountyByLabel} = require('../utils/usCountyUtils');
 const {resolveInvitationStatus} = require('../utils/userHelpers');
-const {getFullName} = require('../utils/userUtils');
+const {getFullName, withMembershipDetails} = require('../utils/userUtils');
 
 const {MODELS} = modelConstants;
 
@@ -78,17 +78,17 @@ const findOrgUsers = async ({organizationId, query}) => {
       include: Object.assign(
         {
           id: true,
-          firstName: true,
-          lastName: true,
           email: true,
           hhaEmail: true,
           isEmailAdminSet: true,
           createdAt: true,
           isVerified: true,
           invitationSentAt: true,
+
+          // The name is per organization, so it comes from the membership.
           userOrganizations: {
             where: {organizationId},
-            select: {role: true},
+            select: {role: true, firstName: true, lastName: true},
             take: 1,
           },
         },
@@ -118,7 +118,7 @@ const toMemberState = ({user, email}) => {
 
 const toMember = ({user, email, conflictUserIds}) => ({
   userId: user.id,
-  name: getFullName({user}),
+  name: getFullName({user: user.userOrganizations?.[0]}),
   loginEmail: user.email,
   state: toMemberState({user, email}),
 
@@ -1435,7 +1435,15 @@ module.exports = class HhaSyncWorklistServices {
             hhaPatientId: patient.hhaPatientId || null,
             name: getFullName({user: patient}),
             current: holder
-              ? {id: holder.id, name: getFullName({user: holder.user})}
+              ? {
+                  id: holder.id,
+                  name: getFullName({
+                    user: withMembershipDetails({
+                      user: holder.user,
+                      membership: holder.userOrganization,
+                    }),
+                  }),
+                }
               : null,
           };
         }),

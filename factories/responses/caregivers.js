@@ -5,6 +5,7 @@ const {
 } = require('../../constants/responses/success/caregivers');
 
 const {isPlaceholderEmail} = require('../../utils/hhaExchange/caregiverMapper');
+const {withMembershipDetails} = require('../../utils/userUtils');
 
 module.exports = class CaregiversResponsesFactories {
   /**
@@ -64,26 +65,32 @@ module.exports = class CaregiversResponsesFactories {
 
     // Include user info if available
     if (includeUser && caregiverProfile.user) {
+      // Person details are per organization: take them from the membership.
+      const user = withMembershipDetails({
+        user: caregiverProfile.user,
+        membership: caregiverProfile.userOrganization,
+      });
+
       formatted.user = {
-        id: caregiverProfile.user.id,
-        firstName: caregiverProfile.user.firstName,
-        lastName: caregiverProfile.user.lastName,
-        email: caregiverProfile.user.email,
-        phoneNo: caregiverProfile.user.phoneNo,
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNo: user.phoneNo,
 
         // Address lives on the user row, not the profile -- CaregiverProfile is
         // a User satellite -- but it is a caregiver field to every caller.
-        address: caregiverProfile.user.address,
-        city: caregiverProfile.user.city,
-        state: caregiverProfile.user.state,
-        zipCode: caregiverProfile.user.zipCode,
-        isVerified: caregiverProfile.user.isVerified,
+        address: user.address,
+        city: user.city,
+        state: user.state,
+        zipCode: user.zipCode,
+        isVerified: user.isVerified,
 
         // Lets the UI offer the one email edit that is allowed: replacing the
         // synthetic address sync minted for a caregiver HHAeXchange had none
         // for. See updateCaregiver.
         isPlaceholderEmail: isPlaceholderEmail({
-          email: caregiverProfile.user.email,
+          email: user.email,
         }),
       };
     }

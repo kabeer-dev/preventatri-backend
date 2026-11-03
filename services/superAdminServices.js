@@ -4,13 +4,40 @@ const {ORGANIZATION_ACTIONS} = require('../constants/organizationsConstants');
 const {PrismaFactory, GeneralErrorsFactories} = require('../factories');
 const {getCurrentDateTime} = require('../utils/dateUtils');
 
-// The founding admin, shown on each row and emailed about a decision.
+// The founding admin, shown on each row and emailed about a decision. The
+// name is per organization, so it is read from the creator's memberships.
 const ORGANIZATION_ADMIN_INCLUSION = {
   include: {
     creator: {
-      select: {id: true, firstName: true, lastName: true, email: true},
+      select: {
+        id: true,
+        email: true,
+        userOrganizations: {
+          select: {organizationId: true, firstName: true, lastName: true},
+        },
+      },
     },
   },
+};
+
+// The creator as {id, firstName, lastName, email}, named as in this organization.
+const withCreatorName = ({organization}) => {
+  if (!organization?.creator) return organization;
+
+  const {userOrganizations = [], id, email} = organization.creator;
+
+  const membership = userOrganizations.find(
+    (candidate) => candidate.organizationId === organization.id
+  );
+
+  return Object.assign({}, organization, {
+    creator: {
+      id,
+      firstName: membership?.firstName ?? null,
+      lastName: membership?.lastName ?? null,
+      email,
+    },
+  });
 };
 
 /**
@@ -68,7 +95,12 @@ module.exports = class SuperAdminServices {
         return {success: false, docs: [], count: 0, error: countError};
       }
 
-      return {success: true, docs, count, error: null};
+      return {
+        success: true,
+        docs: docs.map((organization) => withCreatorName({organization})),
+        count,
+        error: null,
+      };
     } catch (error) {
       return {success: false, docs: [], count: 0, error};
     }
@@ -168,7 +200,7 @@ module.exports = class SuperAdminServices {
 
       return {
         success: true,
-        organization: Object.assign({}, organization, {
+        organization: Object.assign({}, withCreatorName({organization}), {
           status: to,
           statusReason: reason || null,
         }),

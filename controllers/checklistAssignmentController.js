@@ -1,4 +1,5 @@
 const {
+  CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
   CHECKLIST_TEMPLATE_STATUSES,
   CHECKLIST_TEMPLATE_TYPES,
   SKIPPABLE_STATUSES,
@@ -20,6 +21,11 @@ const {
   ChecklistAssignmentErrorsFactories,
   ChecklistAssignmentResponsesFactories,
 } = require('../factories');
+
+const {
+  withOrganizationMember,
+  withProfileMember,
+} = require('../factories/responses/workItems');
 
 const logger = require('../middleware/loggerMiddleware');
 
@@ -248,12 +254,15 @@ module.exports = class ChecklistAssignmentController {
       options: {
         fieldsInclusion: {
           include: {
+            // Names are kept per organization: the caregiver's comes from the
+            // profile's membership, the assigner's from their one here.
             caregiverProfile: {
               select: {
                 id: true,
-                user: {select: {firstName: true, lastName: true}},
+                userOrganization: {select: {firstName: true, lastName: true}},
               },
             },
+            assigner: CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
           },
         },
       },
@@ -266,7 +275,17 @@ module.exports = class ChecklistAssignmentController {
     }
 
     return ChecklistAssignmentResponsesFactories.assignmentsListRetrieved({
-      assignments,
+      assignments: assignments.map((assignment) =>
+        Object.assign(assignment, {
+          caregiverProfile: withProfileMember({
+            profile: assignment.caregiverProfile,
+          }),
+          assigner: withOrganizationMember({
+            user: assignment.assigner,
+            organizationId: assignment.organizationId,
+          }),
+        })
+      ),
       meta: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),

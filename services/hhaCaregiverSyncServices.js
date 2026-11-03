@@ -188,6 +188,7 @@ const updateChangedCaregiver = async ({
   try {
     ({before} = await updateUserAndProfile({
       userId: existing.userId,
+      organizationId: existing.organizationId,
       profileModel: modelConstants.MODELS.CAREGIVER_PROFILE,
       profileId: existing.id,
 

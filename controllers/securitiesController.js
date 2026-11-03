@@ -4,6 +4,7 @@ const {
   UsersErrorsFactories,
 } = require('../factories');
 const {SecurityServices, UsersServices} = require('../services');
+const {withOrganizationDetails} = require('../utils/userUtils');
 
 module.exports = class SecuritiesController {
   static async getOtpMethods(req, res, next) {
@@ -19,13 +20,16 @@ module.exports = class SecuritiesController {
     const {otpMethods} = req.body;
 
     // Email is mandatory at signup but phoneNo is optional, so phone OTP can
-    // only be enabled once the user has a phone number on their account.
+    // only be enabled once the user has a phone number. The login OTP is an
+    // account-level message, so the number is the primary organization's.
     if (otpMethods.phone) {
       const {user} = await UsersServices.getUserById({id: userId});
 
       if (!user) throw UsersErrorsFactories.userNotFoundErr();
 
-      if (!user.phoneNo?.trim())
+      const {phoneNo} = await withOrganizationDetails({user});
+
+      if (!phoneNo?.trim())
         throw SecuritiesErrorsFactories.phoneNumberRequiredForPhoneOtpErr();
     }
 

@@ -1,6 +1,10 @@
 const {modelConstants} = require('../constants');
 
 const {
+  buildUserMembershipsSelect,
+} = require('../constants/assessmentConstants');
+
+const {
   SUPERVISORY_VISIT_STATUSES,
   SUPERVISORY_VISIT_OPEN_STATUS_VALUES,
   SUPERVISORY_VISIT_SWEEPABLE_STATUS_VALUES,
@@ -15,6 +19,7 @@ const {
 
 const {WORK_ITEM_EVENTS_LIMIT} = require('../constants/workItemConstants');
 const {PrismaFactory} = require('../factories');
+const {withWorkItemPeople} = require('../factories/responses/workItems');
 
 const {
   addMinutes,
@@ -29,8 +34,24 @@ const {recordVisitEvent} = require('../utils/supervisoryVisitEventUtils');
 
 const {MODELS} = modelConstants;
 
-const PERSON_SELECT = {id: true, firstName: true, lastName: true, email: true};
-const USER_ORG_SELECT = {id: true, role: true, user: {select: PERSON_SELECT}};
+// Names are kept per organization: a plain user brings their memberships (read
+// down to the visit's organization by withWorkItemPeople), an assignee or
+// caregiver is a membership and carries the name itself.
+const PERSON_SELECT = {
+  id: true,
+  email: true,
+  userOrganizations: buildUserMembershipsSelect({
+    fields: ['firstName', 'lastName'],
+  }),
+};
+
+const USER_ORG_SELECT = {
+  id: true,
+  role: true,
+  firstName: true,
+  lastName: true,
+  user: {select: {id: true, email: true}},
+};
 
 const FLAG_SELECT = {
   id: true,
@@ -107,8 +128,8 @@ const LIST_EXCLUDE = ['answers'];
 const SEARCH_FIELDS = [
   'patient.firstName',
   'patient.lastName',
-  'assignee.user.firstName',
-  'assignee.user.lastName',
+  'assignee.firstName',
+  'assignee.lastName',
 ];
 
 const toStatusList = ({status}) =>
@@ -229,10 +250,14 @@ module.exports = class SupervisoryVisitsServices {
 
   static async getVisitDetails({id, scopeClause = {}}) {
     try {
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: MODELS.SUPERVISORY_VISIT,
         query: Object.assign({id}, scopeClause),
         fieldsInclusion: {include: DETAILS_INCLUDE},
+      });
+
+      return Object.assign(result, {
+        doc: withWorkItemPeople({item: result.doc}),
       });
     } catch (error) {
       return {success: false, doc: null, error};

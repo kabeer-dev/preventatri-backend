@@ -7,6 +7,7 @@ const {
 const {
   isPlaceholderEmail,
 } = require('../../utils/hhaExchange/placeholderEmailUtils');
+const {withMembershipDetails} = require('../../utils/userUtils');
 
 module.exports = class CaseManagersResponsesFactories {
   /**
@@ -75,19 +76,25 @@ module.exports = class CaseManagersResponsesFactories {
 
     // Include user info if available
     if (includeUser && caseManagerProfile.user) {
+      // Person details are per organization: take them from the membership.
+      const user = withMembershipDetails({
+        user: caseManagerProfile.user,
+        membership: caseManagerProfile.userOrganization,
+      });
+
       formatted.user = {
-        id: caseManagerProfile.user.id,
-        firstName: caseManagerProfile.user.firstName,
-        lastName: caseManagerProfile.user.lastName,
-        email: caseManagerProfile.user.email,
-        phoneNo: caseManagerProfile.user.phoneNo,
-        isVerified: caseManagerProfile.user.isVerified,
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNo: user.phoneNo,
+        isVerified: user.isVerified,
 
         // Lets the UI offer the one email edit that is allowed: replacing the
         // synthetic address sync minted for a coordinator HHAeXchange had none
         // for. See updateCaseManager.
         isPlaceholderEmail: isPlaceholderEmail({
-          email: caseManagerProfile.user.email,
+          email: user.email,
         }),
       };
     }

@@ -23,10 +23,12 @@ const prepareRosterRow = ({membership, conflictUserIds}) => {
     id: membership.id,
     userId: user?.id ?? null,
     profileId: profile?.id ?? null,
-    firstName: user?.firstName ?? null,
-    lastName: user?.lastName ?? null,
+
+    // Person details are per organization, so they come from the membership.
+    firstName: membership.firstName ?? null,
+    lastName: membership.lastName ?? null,
     email: user?.email ?? null,
-    phoneNo: user?.phoneNo ?? null,
+    phoneNo: membership.phoneNo ?? null,
     role,
     status: resolveRosterStatus({user, profile}),
     source: profile?.source ?? null,

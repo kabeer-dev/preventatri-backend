@@ -13,7 +13,19 @@ const {Prisma} = require('../generated/prisma/client');
 // An updatedAt this close to createdAt is the creating write, not an edit.
 const EDIT_THRESHOLD = Prisma.sql`interval '5 seconds'`;
 
+// The performer's name as recorded on their membership of the patient's
+// organization; the users columns are frozen account values. A removed
+// person keeps their soft-deleted membership, so history still shows the name.
+const performerJoin = ({userColumn}) => Prisma.sql`
+    LEFT JOIN user_organizations u ON u."userId" = ${Prisma.raw(userColumn)}
+      AND u."organizationId" = (SELECT organization_id FROM timeline_org)`;
+
 const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
+  timeline_org AS (
+    SELECT p."organizationId" AS organization_id
+    FROM patients p
+    WHERE p.id = ${patientId}
+  ),
   timeline AS (
     SELECT 'PATIENT_ADDED' AS type,
       ${utcInstant({column: 'p."createdAt"'})} AS at,
@@ -34,7 +46,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'FLAG_RAISED', ${utcInstant({column: 'f."createdAt"'})},
       u."firstName", u."lastName", NULL, f.id::text, f.flag::text
     FROM submission_flags f
-    LEFT JOIN users u ON u.id = f.submitted_by
+    ${performerJoin({userColumn: 'f.submitted_by'})}
     WHERE f."patientId" = ${patientId} AND f.deleted_at IS NULL
 
     UNION ALL
@@ -42,14 +54,14 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
       u."firstName", u."lastName", r.notes, f.id::text, f.flag::text
     FROM submission_flag_escalation_responses r
     JOIN submission_flags f ON f.id = r.submission_flag_id
-    LEFT JOIN users u ON u.id = r.submitted_by
+    ${performerJoin({userColumn: 'r.submitted_by'})}
     WHERE f."patientId" = ${patientId} AND f.deleted_at IS NULL
 
     UNION ALL
     SELECT 'FLAG_VOIDED', ${utcInstant({column: 'f.voided_at'})},
       u."firstName", u."lastName", f.void_reason, f.id::text, f.flag::text
     FROM submission_flags f
-    LEFT JOIN users u ON u.id = f.voided_by
+    ${performerJoin({userColumn: 'f.voided_by'})}
     WHERE f."patientId" = ${patientId} AND f.deleted_at IS NULL
       AND f.voided_at IS NOT NULL
 
@@ -58,7 +70,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
       u."firstName", u."lastName", t.title, a.id::text, NULL
     FROM checklist_assignments a
     LEFT JOIN checklist_templates t ON t.id = a."checklistTemplateId"
-    LEFT JOIN users u ON u.id = a.assigned_by
+    ${performerJoin({userColumn: 'a.assigned_by'})}
     WHERE a."patientId" = ${patientId}
 
     UNION ALL
@@ -80,14 +92,14 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'FOLLOW_UP_TASK_CREATED', ${utcInstant({column: 'k.created_at'})},
       u."firstName", u."lastName", k.title, k.id::text, NULL
     FROM follow_up_tasks k
-    LEFT JOIN users u ON u.id = k.created_by
+    ${performerJoin({userColumn: 'k.created_by'})}
     WHERE k.patient_id = ${patientId} AND k.deleted_at IS NULL
 
     UNION ALL
     SELECT 'FOLLOW_UP_TASK_COMPLETED', ${utcInstant({column: 'k.completed_at'})},
       u."firstName", u."lastName", k.title, k.id::text, NULL
     FROM follow_up_tasks k
-    LEFT JOIN users u ON u.id = k.completed_by
+    ${performerJoin({userColumn: 'k.completed_by'})}
     WHERE k.patient_id = ${patientId} AND k.deleted_at IS NULL
       AND k.completed_at IS NOT NULL
 
@@ -95,7 +107,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'FOLLOW_UP_TASK_CANCELLED', k.cancelled_at,
       u."firstName", u."lastName", k.cancel_reason, k.id::text, NULL
     FROM follow_up_tasks k
-    LEFT JOIN users u ON u.id = k.cancelled_by
+    ${performerJoin({userColumn: 'k.cancelled_by'})}
     WHERE k.patient_id = ${patientId} AND k.deleted_at IS NULL
       AND k.cancelled_at IS NOT NULL
 
@@ -103,14 +115,14 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'SUPERVISORY_VISIT_SCHEDULED', ${utcInstant({column: 'v.created_at'})},
       u."firstName", u."lastName", NULL, v.id::text, NULL
     FROM supervisory_visits v
-    LEFT JOIN users u ON u.id = v.created_by
+    ${performerJoin({userColumn: 'v.created_by'})}
     WHERE v.patient_id = ${patientId} AND v.deleted_at IS NULL
 
     UNION ALL
     SELECT 'SUPERVISORY_VISIT_COMPLETED', ${utcInstant({column: 'v.completed_at'})},
       u."firstName", u."lastName", NULL, v.id::text, NULL
     FROM supervisory_visits v
-    LEFT JOIN users u ON u.id = v.completed_by
+    ${performerJoin({userColumn: 'v.completed_by'})}
     WHERE v.patient_id = ${patientId} AND v.deleted_at IS NULL
       AND v.completed_at IS NOT NULL
 
@@ -118,7 +130,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'SUPERVISORY_VISIT_REVIEWED', v.reviewed_at,
       u."firstName", u."lastName", v.review_note, v.id::text, NULL
     FROM supervisory_visits v
-    LEFT JOIN users u ON u.id = v.reviewed_by
+    ${performerJoin({userColumn: 'v.reviewed_by'})}
     WHERE v.patient_id = ${patientId} AND v.deleted_at IS NULL
       AND v.reviewed_at IS NOT NULL
 
@@ -126,7 +138,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
     SELECT 'SUPERVISORY_VISIT_CANCELLED', v.cancelled_at,
       u."firstName", u."lastName", v.cancel_reason, v.id::text, NULL
     FROM supervisory_visits v
-    LEFT JOIN users u ON u.id = v.cancelled_by
+    ${performerJoin({userColumn: 'v.cancelled_by'})}
     WHERE v.patient_id = ${patientId} AND v.deleted_at IS NULL
       AND v.cancelled_at IS NOT NULL
 
@@ -135,7 +147,7 @@ const PATIENT_TIMELINE_CTE = ({patientId}) => Prisma.sql`
       u."firstName", u."lastName", t.title, s.id::text, NULL
     FROM checklist_submissions s
     LEFT JOIN checklist_templates t ON t.id = s."checklistTemplateId"
-    LEFT JOIN users u ON u.id = s."assigneeId"
+    ${performerJoin({userColumn: 's."assigneeId"'})}
     WHERE s."patientId" = ${patientId} AND s.deleted_at IS NULL
       AND s."submittedAt" IS NOT NULL
   )`;

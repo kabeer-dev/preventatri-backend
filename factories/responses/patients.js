@@ -15,6 +15,7 @@ const {
   formatPatientsListView,
   formatPendingPerson,
 } = require('../../utils/patientUtils');
+const {withMembershipDetails} = require('../../utils/userUtils');
 
 module.exports = class PatientsResponsesFactories {
   /**
@@ -23,21 +24,30 @@ module.exports = class PatientsResponsesFactories {
    */
   static formatPatient({patient}) {
     const caregivers =
-      patient.caregiverPatients?.map((cp) => ({
-        profileId: cp.caregiverProfile?.id || cp.caregiverProfileId,
-        role: cp.caregiverProfile?.role,
-        status: cp.caregiverProfile?.status,
-        assignedAt: cp.assignedAt,
-        user: cp.caregiverProfile?.user
-          ? {
-              id: cp.caregiverProfile.user.id,
-              firstName: cp.caregiverProfile.user.firstName,
-              lastName: cp.caregiverProfile.user.lastName,
-              email: cp.caregiverProfile.user.email,
-              phoneNo: cp.caregiverProfile.user.phoneNo,
-            }
-          : null,
-      })) || [];
+      patient.caregiverPatients?.map((cp) => {
+        // Name and phone are per organization: they come from the profile's
+        // membership.
+        const user = withMembershipDetails({
+          user: cp.caregiverProfile?.user,
+          membership: cp.caregiverProfile?.userOrganization,
+        });
+
+        return {
+          profileId: cp.caregiverProfile?.id || cp.caregiverProfileId,
+          role: cp.caregiverProfile?.role,
+          status: cp.caregiverProfile?.status,
+          assignedAt: cp.assignedAt,
+          user: user
+            ? {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNo: user.phoneNo,
+              }
+            : null,
+        };
+      }) || [];
 
     const formatNurseRef = ({nurse}) =>
       nurse

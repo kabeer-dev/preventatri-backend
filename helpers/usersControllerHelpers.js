@@ -39,6 +39,7 @@ const {
   getInvitationExpiry,
   isInvitationActive,
 } = require('../utils/userHelpers');
+const {pickMembershipDetails} = require('../utils/userUtils');
 
 module.exports = class UsersControllerHelpers {
   /**
@@ -195,7 +196,10 @@ module.exports = class UsersControllerHelpers {
       if (existingUserOrg) {
         await tx.userOrganization.update({
           where: {id: existingUserOrg.id},
-          data: {role},
+          data: safeMerge({
+            originalObj: {role},
+            newObj: pickMembershipDetails({data: dataToCreateOrUpdate}),
+          }),
         });
       }
 
@@ -217,6 +221,7 @@ module.exports = class UsersControllerHelpers {
         role,
         isPendingInvitation,
         pendingProfileStatus,
+        details: pickMembershipDetails({data: dataToCreateOrUpdate}),
         tx,
       }))
     ) {
@@ -240,17 +245,28 @@ module.exports = class UsersControllerHelpers {
       // NOTE: In MongoDB, organizations were embedded directly in User document
       // In Prisma/PostgreSQL, we need explicit junction table (UserOrganization) for 1:M relationships
       // This prevents data duplication and ensures referential integrity
+      //
+      // The details start from what was typed for this organization. A person
+      // created from nothing but an email (no payload) falls back to the
+      // account's own values.
       await tx.userOrganization.create({
-        data: {
-          userId: user.id,
-          organizationId: organizationIdToAddTo,
-          role,
-          isActive: !isPendingInvitation,
-          invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
-          pendingProfileStatus: isPendingInvitation
-            ? pendingProfileStatus
-            : null,
-        },
+        data: safeMerge({
+          originalObj: {
+            userId: user.id,
+            organizationId: organizationIdToAddTo,
+            role,
+            isActive: !isPendingInvitation,
+            invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
+            pendingProfileStatus: isPendingInvitation
+              ? pendingProfileStatus
+              : null,
+          },
+          newObj: pickMembershipDetails({
+            data: existingUserPrismaDoc
+              ? dataToCreateOrUpdate
+              : safeMerge({originalObj: user, newObj: dataToCreateOrUpdate}),
+          }),
+        }),
       });
     }
 
@@ -281,19 +297,25 @@ module.exports = class UsersControllerHelpers {
     role,
     isPendingInvitation,
     pendingProfileStatus,
+    details = {},
     tx,
   }) {
     const {count} = await tx.userOrganization.updateMany({
       includeDeleted: true,
       where: {userId, organizationId, isDeleted: {not: null}},
-      data: {
-        isDeleted: null,
-        role,
-        isActive: !isPendingInvitation,
-        invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
-        invitationSecret: null,
-        pendingProfileStatus: isPendingInvitation ? pendingProfileStatus : null,
-      },
+      data: safeMerge({
+        originalObj: {
+          isDeleted: null,
+          role,
+          isActive: !isPendingInvitation,
+          invitationSentAt: isPendingInvitation ? getCurrentTime() : null,
+          invitationSecret: null,
+          pendingProfileStatus: isPendingInvitation
+            ? pendingProfileStatus
+            : null,
+        },
+        newObj: details,
+      }),
     });
 
     if (count === 0) return false;

@@ -10,6 +10,7 @@ const {
   GLOBAL_SEARCH_STAFF_ROLES,
   GLOBAL_SEARCH_STAFF_SORT,
   GLOBAL_SEARCH_STAFF_USER_SELECT,
+  GLOBAL_SEARCH_STAFF_MEMBERSHIP_SELECT,
 } = require('../constants/globalSearchConstants');
 const {PrismaFactory} = require('../factories');
 const {buildNameSearchClause, safeMerge} = require('../utils/general');
@@ -84,17 +85,20 @@ module.exports = class GlobalSearchServices {
         }),
         options: {take, sort: GLOBAL_SEARCH_STAFF_SORT},
         fieldsInclusion: {
-          include: {
-            user: {
-              select: safeMerge({
-                originalObj: GLOBAL_SEARCH_STAFF_USER_SELECT,
-                newObj: buildProfileRelationsInclude({
-                  selects: PROFILE_ID_SELECTS,
-                  organizationId,
+          include: safeMerge({
+            originalObj: GLOBAL_SEARCH_STAFF_MEMBERSHIP_SELECT,
+            newObj: {
+              user: {
+                select: safeMerge({
+                  originalObj: GLOBAL_SEARCH_STAFF_USER_SELECT,
+                  newObj: buildProfileRelationsInclude({
+                    selects: PROFILE_ID_SELECTS,
+                    organizationId,
+                  }),
                 }),
-              }),
+              },
             },
-          },
+          }),
         },
       });
     } catch (error) {

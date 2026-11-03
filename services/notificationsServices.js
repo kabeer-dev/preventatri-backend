@@ -43,13 +43,26 @@ const {
 } = require('../utils/organizationsUtils');
 const sendSms = require('../utils/phone/send');
 const {sendPrivateSocketMessage} = require('../utils/socketUtils');
-const {getFullName} = require('../utils/userUtils');
+
+const {getFullName, withOrganizationDetails} = require('../utils/userUtils');
 
 // Hydrate the actor on notification reads/writes so responses (and the socket
 // payload) can expose performedBy as {firstName, lastName}; null for SYSTEM
-// notifications where performedBy is null.
+// notifications where performedBy is null. The name comes from the performer's
+// membership of the notification's organization (picked in formatForClient).
+const PERFORMER_SELECT = {
+  select: {
+    firstName: true,
+    lastName: true,
+    userOrganizations: {
+      where: {isDeleted: null},
+      select: {organizationId: true, firstName: true, lastName: true},
+    },
+  },
+};
+
 const NOTIFICATION_PERFORMER_INCLUSION = {
-  include: {performer: {select: {firstName: true, lastName: true}}},
+  include: {performer: PERFORMER_SELECT},
 };
 
 // Render a template's title/description from context. Titles may be static
@@ -361,9 +374,15 @@ module.exports = class NotificationsServices {
         // The recipient's contact info lives on the users table, not on the
         // notification row. bypassExtraQueries so this works from the background
         // worker with no ACL request context.
-        const {success, user: recipient} = await UsersServices.getUserById({
+        const {success, user: account} = await UsersServices.getUserById({
           id: recipientId,
           options: {bypassExtraQueries: true},
+        });
+
+        // Phone and name as the recipient has them in this organization.
+        const recipient = await withOrganizationDetails({
+          user: account,
+          organizationId,
         });
 
         const contacts = {
@@ -987,15 +1006,17 @@ module.exports = class NotificationsServices {
         query,
         fieldsInclusion: {
           include: {
-            performer: {select: {firstName: true, lastName: true}},
+            performer: PERFORMER_SELECT,
             recipient: {
               select: {
                 id: true,
                 firstName: true,
                 lastName: true,
+
+                // The name shown is the one in this organization.
                 userOrganizations: {
                   where: {organizationId},
-                  select: {role: true},
+                  select: {role: true, firstName: true, lastName: true},
                 },
               },
             },

@@ -189,6 +189,17 @@ model UserOrganization {
   invitationSecret     String?
   pendingProfileStatus String?
 
+  // The person's own details in this organization. A change in one organization
+  // never reaches another; the same columns on users are only the account's
+  // starting values from signup.
+  firstName String?
+  lastName  String?
+  phoneNo   String? @db.VarChar(20)
+  address   String? @db.VarChar(500)
+  city      String? @db.VarChar(100)
+  zipCode   String? @map("zip_code") @db.VarChar(10)
+  state     String? @db.VarChar(50)
+
   isDeleted DateTime? @map("deleted_at")
 
   createdAt DateTime @default(now())
@@ -196,6 +207,10 @@ model UserOrganization {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  nurseProfiles       NurseProfile[]
+  caregiverProfiles   CaregiverProfile[]
+  caseManagerProfiles CaseManagerProfile[]
 
   escalationsAsCurrentAssignee        SubmissionFlagEscalation[]      @relation("escalationCurrentAssignee")
   escalationsAsAcknowledgedBy          SubmissionFlagEscalation[]      @relation("escalationAcknowledgedBy")
@@ -282,6 +297,7 @@ model NurseProfile {
 
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userOrganization    UserOrganization     @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
   regionalNurses      NurseRegion[]
   regionDefaultNurses RegionDefaultNurse[]
 
@@ -448,6 +464,7 @@ model CaregiverProfile {
 
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userOrganization     UserOrganization      @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
   caregiverPatients    CaregiverPatient[]
   checklistAssignments ChecklistAssignment[]
 
@@ -830,6 +847,7 @@ model CaseManagerProfile {
 
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userOrganization    UserOrganization     @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
   caseManagerRegions  CaseManagerRegion[]
   caseManagerPatients CaseManagerPatient[]
   supervisoryVisits   SupervisoryVisit[]

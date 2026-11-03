@@ -59,6 +59,21 @@ const UPDATABLE_USER_FIELDS = [
 ];
 
 /**
+ * Person details kept per organization on the membership (UserOrganization),
+ * so a change in one organization never reaches another. Email, password,
+ * language and profile image stay on the account.
+ */
+const MEMBERSHIP_DETAIL_FIELDS = [
+  'firstName',
+  'lastName',
+  'phoneNo',
+  'address',
+  'city',
+  'zipCode',
+  'state',
+];
+
+/**
  * User fields that should NEVER be user-updatable
  * These are security-sensitive and can only be modified by system/admin operations
  */
@@ -319,10 +334,12 @@ const ROSTER_SOURCES_VALUES = Object.values(ROSTER_SOURCES).map(
 // it is polymorphic (a licence string for nurses, a count for the other two),
 // so there is no single column to sort on.
 const USERS_SORT_FIELDS = {
-  firstName: {value: 'user.firstName', searchValue: 'user.firstName'},
-  lastName: {value: 'user.lastName', searchValue: 'user.lastName'},
+  // Person details sort on the membership row itself, which holds them per
+  // organization. `value` stays the public sortBy.
+  firstName: {value: 'user.firstName', searchValue: 'firstName'},
+  lastName: {value: 'user.lastName', searchValue: 'lastName'},
   email: {value: 'user.email', searchValue: 'user.email'},
-  phoneNo: {value: 'user.phoneNo', searchValue: 'user.phoneNo'},
+  phoneNo: {value: 'user.phoneNo', searchValue: 'phoneNo'},
   role: {value: 'role', searchValue: 'role'},
   createdAt: {value: 'createdAt', searchValue: 'createdAt'},
 };
@@ -332,7 +349,8 @@ const USERS_SORT_FIELDS_VALUES = Object.values(USERS_SORT_FIELDS).map(
 );
 
 // Fields the roster search matches on, in `buildNameSearchClause` dotted form.
-const USERS_SEARCH_FIELDS = ['user.firstName', 'user.lastName', 'user.email'];
+// Names live on the membership (UserOrganization), email on the account.
+const USERS_SEARCH_FIELDS = ['firstName', 'lastName', 'user.email'];
 
 module.exports = {
   PHONE_NUMBER_MAX_LENGTH,
@@ -363,6 +381,7 @@ module.exports = {
   LANGUAGES_VALUES,
   DEFAULT_LANGUAGE,
   UPDATABLE_USER_FIELDS,
+  MEMBERSHIP_DETAIL_FIELDS,
   NON_UPDATABLE_USER_FIELDS,
   MAX_TIMESERIES_RANGE_DAYS,
   ADMIN_STATS_TRENDS_METRICS,

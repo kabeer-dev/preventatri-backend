@@ -18,10 +18,14 @@ const {
   resolveLinkEligibility,
 } = require('./hhaExchange/linkEligibilityUtils');
 
+// Names are kept per organization: a profile's comes from its membership.
+const MEMBER_NAME_SELECT = {select: {firstName: true, lastName: true}};
+
 const nurseRefSelect = {
   select: {
     id: true,
-    user: {select: {firstName: true, lastName: true}},
+    user: {select: {id: true}},
+    userOrganization: MEMBER_NAME_SELECT,
   },
 };
 
@@ -29,8 +33,11 @@ const formatNurseRef = ({nurse}) =>
   nurse
     ? {
         id: nurse.id,
-        user: nurse.user
-          ? {firstName: nurse.user.firstName, lastName: nurse.user.lastName}
+        user: nurse.userOrganization
+          ? {
+              firstName: nurse.userOrganization.firstName,
+              lastName: nurse.userOrganization.lastName,
+            }
           : null,
       }
     : null;
@@ -38,7 +45,8 @@ const formatNurseRef = ({nurse}) =>
 const personRefSelect = {
   select: {
     id: true,
-    user: {select: {id: true, firstName: true, lastName: true}},
+    user: {select: {id: true}},
+    userOrganization: MEMBER_NAME_SELECT,
   },
 };
 
@@ -49,8 +57,8 @@ const formatPersonRef = ({profile}) =>
         user: profile.user
           ? {
               id: profile.user.id,
-              firstName: profile.user.firstName,
-              lastName: profile.user.lastName,
+              firstName: profile.userOrganization?.firstName ?? null,
+              lastName: profile.userOrganization?.lastName ?? null,
             }
           : null,
       }

@@ -61,22 +61,44 @@ const {
   hhaCoordinatorsSelect,
   hhaPendingPeopleSelect,
 } = require('../utils/patientUtils');
+const {withMembershipDetails} = require('../utils/userUtils');
+
+// A staff member's name is per organization, so it is read off the profile's
+// membership and folded back onto `user` (see foldPatientStaffNames).
+const staffNameSelect = {
+  id: true,
+  user: {select: {id: true}},
+  userOrganization: {select: {firstName: true, lastName: true}},
+};
 
 // Default include for primary/secondary nurse on patient reads.
 // Returns minimal user fields so the FE can render "First Last" without an extra fetch.
 const patientNurseRelationsInclude = {
-  primaryNurse: {
-    select: {
-      id: true,
-      user: {select: {id: true, firstName: true, lastName: true}},
-    },
-  },
-  secondaryNurse: {
-    select: {
-      id: true,
-      user: {select: {id: true, firstName: true, lastName: true}},
-    },
-  },
+  primaryNurse: {select: staffNameSelect},
+  secondaryNurse: {select: staffNameSelect},
+};
+
+// Puts the membership's name on the profile's `user`, keeping the old shape.
+const foldStaffName = ({profile}) => {
+  if (!profile?.userOrganization) return;
+
+  profile.user = withMembershipDetails({
+    user: profile.user,
+    membership: profile.userOrganization,
+  });
+  delete profile.userOrganization;
+};
+
+const foldPatientStaffNames = ({patient}) => {
+  if (!patient) return patient;
+
+  foldStaffName({profile: patient.primaryNurse});
+  foldStaffName({profile: patient.secondaryNurse});
+  (patient.checklistAssignments || []).forEach((assignment) =>
+    foldStaffName({profile: assignment.caregiverProfile})
+  );
+
+  return patient;
 };
 
 module.exports = class PatientsServices {
@@ -99,6 +121,8 @@ module.exports = class PatientsServices {
         options,
         fieldsInclusion,
       });
+
+      foldPatientStaffNames({patient: result.doc});
 
       return result;
     } catch (error) {
@@ -138,7 +162,7 @@ module.exports = class PatientsServices {
         };
       }
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.PATIENT,
         query,
 
@@ -173,18 +197,7 @@ module.exports = class PatientsServices {
                       title: true,
                     },
                   },
-                  caregiverProfile: {
-                    select: {
-                      id: true,
-                      user: {
-                        select: {
-                          id: true,
-                          firstName: true,
-                          lastName: true,
-                        },
-                      },
-                    },
-                  },
+                  caregiverProfile: {select: staffNameSelect},
                 },
               },
             }
@@ -198,6 +211,10 @@ module.exports = class PatientsServices {
           ],
         },
       });
+
+      foldPatientStaffNames({patient: result.doc});
+
+      return result;
     } catch (error) {
       return {success: false, doc: null, error};
     }
@@ -587,6 +604,10 @@ module.exports = class PatientsServices {
         options: safeMerge({originalObj: options, newObj: queryOptions}),
         fieldsInclusion,
       });
+
+      (result.docs || []).forEach((patient) =>
+        foldPatientStaffNames({patient})
+      );
 
       const countResult = await PrismaFactory.countDocuments({
         model: modelConstants.MODELS.PATIENT,

@@ -319,13 +319,25 @@ module.exports = class CaregiversController {
     // Update in transaction
     await wrapWithPrismaTransaction({
       fn: async (tx) => {
-        // Update user fields if provided
-        const userUpdateData = filterUndefined({
-          obj: Object.assign(
-            {firstName, lastName, phoneNo, address, city, state, zipCode},
-            emailUpdate
-          ),
+        // Name, phone and address are the person's details in THIS
+        // organization only; the account keeps just the email.
+        const membershipUpdateData = filterUndefined({
+          obj: {firstName, lastName, phoneNo, address, city, state, zipCode},
         });
+
+        if (Object.keys(membershipUpdateData).length > 0) {
+          const {error: membershipError} =
+            await UsersServices.updateMembershipDetails({
+              userId: caregiverProfile.userId,
+              organizationId: caregiverProfile.organizationId,
+              data: membershipUpdateData,
+              tx,
+            });
+
+          if (membershipError) throw membershipError;
+        }
+
+        const userUpdateData = filterUndefined({obj: emailUpdate});
 
         if (Object.keys(userUpdateData).length > 0) {
           const {success: userSuccess, error: userError} =

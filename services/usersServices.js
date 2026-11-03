@@ -35,6 +35,7 @@ const {
   ROSTER_STATUS_ROLES,
   INVITATION_STATUSES,
   USERS_SEARCH_FIELDS,
+  MEMBERSHIP_DETAIL_FIELDS,
 } = require('../constants/usersConstants');
 const {PrismaFactory} = require('../factories');
 
@@ -67,6 +68,7 @@ const {
   getInvitationExpiryCutoff,
   buildEmailChangeInvalidation,
 } = require('../utils/userHelpers');
+const {pickMembershipDetails} = require('../utils/userUtils');
 
 /**
  * What the roster needs off a profile: the id the row links to, plus the status
@@ -574,6 +576,57 @@ module.exports = class UsersServices {
   }
 
   /**
+   * Changes a person's name, phone and address in ONE organization. The
+   * membership is named explicitly, so a change here never reaches the same
+   * person in another organization.
+   */
+  static async updateMembershipDetails({
+    userId,
+    organizationId,
+    data,
+    options = {},
+    tx,
+  }) {
+    try {
+      const {success, error} = await PrismaFactory.updateMany({
+        model: modelConstants.MODELS.USER_ORGANIZATION,
+        query: {userId, organizationId},
+        data: pickMembershipDetails({data}),
+        options: safeMerge({
+          originalObj: options,
+          newObj: {bypassExtraQueries: true},
+        }),
+        tx,
+      });
+
+      return {success, error};
+    } catch (error) {
+      return {success: false, error};
+    }
+  }
+
+  /**
+   * The person's details in one organization, for messages and responses that
+   * are about that organization. Null when the person has no membership there.
+   */
+  static async getMembershipDetails({userId, organizationId}) {
+    try {
+      const {success, doc, error} = await PrismaFactory.findOne({
+        model: modelConstants.MODELS.USER_ORGANIZATION,
+        query: {userId, organizationId},
+        fieldsInclusion: {
+          includeSpecificFields: MEMBERSHIP_DETAIL_FIELDS,
+        },
+        options: {bypassExtraQueries: true},
+      });
+
+      return {success, doc, error};
+    } catch (error) {
+      return {success: false, doc: null, error};
+    }
+  }
+
+  /**
    * Check if a user has an active (non-deleted) role profile in the current organization.
    * This is a common method used across all role controllers (nurse, caregiver, case manager)
    * to prevent duplicate profiles and allow re-invitation after soft-delete.
@@ -1037,14 +1090,16 @@ module.exports = class UsersServices {
         options: safeMerge({originalObj: options, newObj: queryOptions}),
         fieldsInclusion: {
           include: {
+            // Person details are per organization, so they come from the
+            // membership row, not the account.
+            firstName: true,
+            lastName: true,
+            phoneNo: true,
             user: {
               select: safeMerge({
                 originalObj: {
                   id: true,
-                  firstName: true,
-                  lastName: true,
                   email: true,
-                  phoneNo: true,
                   isVerified: true,
                   isDeleted: true,
                   lockedAt: true,

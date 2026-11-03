@@ -177,6 +177,7 @@ const updateChangedCaseManager = async ({
   try {
     ({before} = await updateUserAndProfile({
       userId: existing.userId,
+      organizationId: existing.organizationId,
       profileModel: modelConstants.MODELS.CASE_MANAGER_PROFILE,
       profileId: existing.id,
 

@@ -4,6 +4,7 @@ const {toLuxonUTC, getCurrentTime} = require('./dateUtils');
 const {safeMerge, getExistingSecretKeys} = require('./general');
 const {isPlaceholderEmail} = require('./hhaExchange/placeholderEmailUtils');
 const jwtUtils = require('./jwtUtils');
+const {pickMembershipDetails} = require('./userUtils');
 
 const {
   CAREGIVER_BLOCKED_STATUSES,
@@ -137,7 +138,7 @@ function buildProfileRelationsInclude({
  * @param {Object} user - Prisma user object with userOrganizations and permissions included
  * @returns {Object} active organization with role, organizationId, and permissions ID
  */
-function getActiveOrganization({user}) {
+function findActiveMembership({user}) {
   if (!user?.userOrganizations) return null;
 
   // The organization chosen in the switcher wins while the membership is
@@ -147,14 +148,36 @@ function getActiveOrganization({user}) {
     (org) => org.isActive
   );
 
-  const activeOrgJunction =
+  return (
     activeOrgJunctions.find(
       (org) => org.organizationId === user.sessionOrganizationId
     ) ||
     activeOrgJunctions.find(
       (org) => org.organizationId === user.primaryOrgId
     ) ||
-    activeOrgJunctions[0];
+    activeOrgJunctions[0] ||
+    null
+  );
+}
+
+/**
+ * Puts the active organization's name, phone and address on the user, so every
+ * response, token and message built from the user shows the details of the
+ * organization the person is in. Without an active membership the account's
+ * own values stay.
+ */
+function applyActiveMembershipDetails({user}) {
+  const membership = findActiveMembership({user});
+
+  if (membership) {
+    Object.assign(user, pickMembershipDetails({data: membership}));
+  }
+
+  return user;
+}
+
+function getActiveOrganization({user}) {
+  const activeOrgJunction = findActiveMembership({user});
 
   if (!activeOrgJunction) return null;
 
@@ -198,7 +221,7 @@ function applySessionOrganization({user, session}) {
     writable: true,
   });
 
-  return user;
+  return applyActiveMembershipDetails({user});
 }
 
 /**
@@ -208,6 +231,8 @@ function applySessionOrganization({user, session}) {
  */
 function enrichUserObject({user}) {
   if (!user) return user;
+
+  applyActiveMembershipDetails({user});
 
   // Add generateToken method
   user.generateToken = ({type, payload}) => {

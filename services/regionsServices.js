@@ -5,6 +5,7 @@ const {PrismaFactory} = require('../factories');
 const {buildNameSearchClause, safeMerge} = require('../utils/general');
 
 const {computeRoleAssignmentPlan} = require('../utils/nurseRegionUtils');
+const {withMembershipDetails} = require('../utils/userUtils');
 
 /**
  * Shape a single NurseRegion roster row's nurseProfile into the lightweight
@@ -13,7 +14,10 @@ const {computeRoleAssignmentPlan} = require('../utils/nurseRegionUtils');
 const buildRegionNurseRef = ({nurseProfile}) => ({
   id: nurseProfile.id,
   status: nurseProfile.status,
-  user: nurseProfile.user,
+  user: withMembershipDetails({
+    user: nurseProfile.user,
+    membership: nurseProfile.userOrganization,
+  }),
 });
 
 module.exports = class RegionsServices {
@@ -423,14 +427,11 @@ module.exports = class RegionsServices {
           include: {
             nurseProfile: {
               include: {
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true,
-                    phoneNo: true,
-                  },
+                user: {select: {id: true, email: true}},
+
+                // Name and phone are per organization.
+                userOrganization: {
+                  select: {firstName: true, lastName: true, phoneNo: true},
                 },
               },
             },
@@ -449,9 +450,18 @@ module.exports = class RegionsServices {
       // Filter out nurse regions where nurseProfile is soft-deleted
       // Since NurseRegion doesn't have isDeleted, we check the nested nurseProfile.isDeleted
       // No need for success/docs guard — .filter() on empty array returns []
-      const filteredDocs = (result.docs || []).filter(
-        (nr) => nr.nurseProfile && nr.nurseProfile.isDeleted === null
-      );
+      const filteredDocs = (result.docs || [])
+        .filter((nr) => nr.nurseProfile && nr.nurseProfile.isDeleted === null)
+        .map((nr) => {
+          // Same `user` shape as before, with this organization's details.
+          const {userOrganization, ...nurseProfile} = nr.nurseProfile;
+          nurseProfile.user = withMembershipDetails({
+            user: nurseProfile.user,
+            membership: userOrganization,
+          });
+
+          return Object.assign({}, nr, {nurseProfile});
+        });
 
       return {
         success: result.success,

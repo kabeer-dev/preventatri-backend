@@ -1,6 +1,8 @@
 const {modelConstants} = require('../constants');
 
 const {
+  buildMemberNameWhere,
+  buildUserMembershipsSelect,
   CHECKLIST_ASSIGNMENT_ASSIGNER_SELECT,
   CHECKLIST_SUBMISSION_STATUSES,
   CHECKLIST_TEMPLATE_CASE_MANAGER_USAGE_SQL,
@@ -26,6 +28,11 @@ const {
 } = require('../constants/supervisoryVisitsConstants');
 const {PrismaFactory} = require('../factories');
 
+const {
+  withOrganizationMember,
+  withProfileMember,
+} = require('../factories/responses/workItems');
+
 const {buildSectionsNestedCreate} = require('../utils/assessmentsUtils');
 
 const {
@@ -42,6 +49,50 @@ const {buildNameSearchClause, safeMerge} = require('../utils/general');
 const {
   buildNursePatientScopeClause,
 } = require('../utils/nursePatientScopeUtils');
+const {getExtraContext} = require('../utils/requestContext');
+
+/**
+ * Names are kept per organization: the assignee, the assigner and the
+ * assignment's caregiver read as they are in the submission's organization.
+ * Mutates and returns the submission; safe on a null one.
+ */
+const withSubmissionPeople = ({submission}) => {
+  if (!submission) return submission;
+
+  const {organizationId, assignment} = submission;
+
+  if (submission.assignee) {
+    submission.assignee = withOrganizationMember({
+      user: submission.assignee,
+      organizationId,
+    });
+  }
+
+  if (assignment?.assigner) {
+    assignment.assigner = withOrganizationMember({
+      user: assignment.assigner,
+      organizationId,
+    });
+  }
+
+  if (assignment?.caregiverProfile) {
+    assignment.caregiverProfile = withProfileMember({
+      profile: assignment.caregiverProfile,
+    });
+  }
+
+  return submission;
+};
+
+const withSubmissionPeopleResult = ({result}) => {
+  if (result?.doc) withSubmissionPeople({submission: result.doc});
+
+  (result?.docs || []).forEach((submission) =>
+    withSubmissionPeople({submission})
+  );
+
+  return result;
+};
 
 module.exports = class AssessmentsServices {
   // ==========================================
@@ -319,12 +370,14 @@ module.exports = class AssessmentsServices {
       if (assigneeId) query.assigneeId = assigneeId;
       if (statuses) query.status = {in: statuses};
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.CHECKLIST_SUBMISSION,
         query,
         options,
         fieldsInclusion: options.fieldsInclusion,
       });
+
+      return withSubmissionPeopleResult({result});
     } catch (error) {
       return {success: false, doc: null, error};
     }
@@ -356,7 +409,7 @@ module.exports = class AssessmentsServices {
         };
       }
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.CHECKLIST_SUBMISSION,
         query,
 
@@ -385,11 +438,10 @@ module.exports = class AssessmentsServices {
             },
             assignee: {
               select: {
-                firstName: true,
-                lastName: true,
                 email: true,
-                address: true,
-                phoneNo: true,
+                userOrganizations: buildUserMembershipsSelect({
+                  fields: ['firstName', 'lastName', 'address', 'phoneNo'],
+                }),
               },
             },
             assignment: {
@@ -402,6 +454,8 @@ module.exports = class AssessmentsServices {
           },
         },
       });
+
+      return withSubmissionPeopleResult({result});
     } catch (error) {
       return {success: false, doc: null, error};
     }
@@ -595,14 +649,23 @@ module.exports = class AssessmentsServices {
 
       const nameClause = buildNameSearchClause({
         name: search,
-        fields: [
-          'patient.firstName',
-          'patient.lastName',
-          'assignee.firstName',
-          'assignee.lastName',
-        ],
+        fields: ['patient.firstName', 'patient.lastName'],
       });
       if (nameClause) {
+        // The assignee is searched by the name they have in this
+        // organization, not by another organization's. The clause has one
+        // entry per word, in order.
+        const organizationId = getExtraContext().queries?.organizationId;
+        const tokens = search.trim().split(/\s+/);
+
+        nameClause.AND.forEach((tokenClause, index) => {
+          tokenClause.OR.push({
+            assignee: buildMemberNameWhere({
+              token: tokens[index],
+              organizationId,
+            }),
+          });
+        });
         Object.assign(query, nameClause);
       }
 
@@ -630,6 +693,8 @@ module.exports = class AssessmentsServices {
         query,
         options: {includeDeleted},
       });
+
+      withSubmissionPeopleResult({result});
 
       return safeMerge({
         originalObj: result,
@@ -672,13 +737,15 @@ module.exports = class AssessmentsServices {
         };
       }
 
-      return await PrismaFactory.find({
+      const result = await PrismaFactory.find({
         model: modelConstants.MODELS.CHECKLIST_SUBMISSION,
         query,
         options: {
           sort: {deadline: 'asc'},
         },
       });
+
+      return withSubmissionPeopleResult({result});
     } catch (error) {
       return {success: false, docs: [], error};
     }

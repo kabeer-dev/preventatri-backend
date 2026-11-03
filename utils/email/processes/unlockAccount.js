@@ -3,11 +3,14 @@ const sendEmail = require('../send');
 const {
   accountUnlockTokenExpiry,
 } = require('../../../constants/generalConstant');
-const {getFullName} = require('../../userUtils');
+const {getFullName, withOrganizationDetails} = require('../../userUtils');
 
 module.exports = async ({user, unlockUrl}) => {
   const {email} = user;
-  const name = getFullName({user}) || email;
+
+  // Account-level message: the name in the primary organization.
+  const person = await withOrganizationDetails({user});
+  const name = getFullName({user: person}) || email;
 
   const expiryMinutes = parseInt(accountUnlockTokenExpiry, 10) || 30;
 

@@ -18,20 +18,16 @@ const GLOBAL_SEARCH_PATIENT_FIELDS = ['id', 'firstName', 'lastName', 'county'];
 
 const GLOBAL_SEARCH_REGION_FIELDS = ['id', 'name'];
 
-const GLOBAL_SEARCH_STAFF_USER_SELECT = {
-  firstName: true,
-  lastName: true,
-  email: true,
-};
+// Names are per organization, so they are read off the membership row.
+const GLOBAL_SEARCH_STAFF_USER_SELECT = {email: true};
+
+const GLOBAL_SEARCH_STAFF_MEMBERSHIP_SELECT = {firstName: true, lastName: true};
 
 const GLOBAL_SEARCH_PROFILE_SELECT = {id: true};
 
 const GLOBAL_SEARCH_PATIENT_SORT = [{firstName: 'asc'}, {lastName: 'asc'}];
 
-const GLOBAL_SEARCH_STAFF_SORT = [
-  {user: {firstName: 'asc'}},
-  {user: {lastName: 'asc'}},
-];
+const GLOBAL_SEARCH_STAFF_SORT = [{firstName: 'asc'}, {lastName: 'asc'}];
 
 module.exports = {
   GLOBAL_SEARCH_LIMITS,
@@ -40,6 +36,7 @@ module.exports = {
   GLOBAL_SEARCH_PATIENT_FIELDS,
   GLOBAL_SEARCH_REGION_FIELDS,
   GLOBAL_SEARCH_STAFF_USER_SELECT,
+  GLOBAL_SEARCH_STAFF_MEMBERSHIP_SELECT,
   GLOBAL_SEARCH_PROFILE_SELECT,
   GLOBAL_SEARCH_PATIENT_SORT,
   GLOBAL_SEARCH_STAFF_SORT,

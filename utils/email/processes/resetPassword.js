@@ -3,9 +3,12 @@ const sendEmail = require('../send');
 const {
   passwordResetTokenExpiry,
 } = require('../../../constants/generalConstant');
+const {withOrganizationDetails} = require('../../userUtils');
 
 module.exports = async ({user, resetUrl}) => {
-  const {email, firstName, lastName} = user;
+  // Account-level message: the name in the primary organization.
+  const {email} = user;
+  const {firstName, lastName} = await withOrganizationDetails({user});
   const name = `${firstName} ${lastName}`;
 
   const expiryMinutes = parseInt(passwordResetTokenExpiry, 10) || 30;

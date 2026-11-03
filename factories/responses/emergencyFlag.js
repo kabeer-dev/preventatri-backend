@@ -46,8 +46,9 @@ module.exports = class EmergencyFlagResponsesFactories {
     const {escalation, voidedAt} = emergencyFlag;
     const response = escalation?.response;
 
+    // Assignees are memberships, which carry the person's name there.
     for (const event of escalation?.events || []) {
-      const assignee = userOf({person: event.assignee?.user});
+      const assignee = userOf({person: event.assignee});
 
       entries.push({
         type: 'ASSIGNED',
@@ -87,7 +88,7 @@ module.exports = class EmergencyFlagResponsesFactories {
         type: 'ACCEPTED',
         at: escalation.acknowledgedAt,
         level: escalation.currentLevel,
-        user: userOf({person: escalation.acknowledgedBy?.user}),
+        user: userOf({person: escalation.acknowledgedBy}),
         notes: null,
       });
     }
@@ -120,11 +121,12 @@ module.exports = class EmergencyFlagResponsesFactories {
   static formatCurrentAssignee({escalation}) {
     if (!OPEN_ESCALATION_STATUSES.includes(escalation?.status)) return null;
 
-    const user = escalation.currentAssignee?.user;
+    // The membership carries the holder's name in this organization.
+    const holder = escalation.currentAssignee;
 
     return {
-      firstName: user?.firstName || null,
-      lastName: user?.lastName || null,
+      firstName: holder?.firstName || null,
+      lastName: holder?.lastName || null,
       level: escalation.currentLevel,
       assignedAt: escalation.assignedAt,
     };
@@ -250,12 +252,11 @@ module.exports = class EmergencyFlagResponsesFactories {
 
       // Who took the flag and when; null until it is accepted.
       result.acceptedAt = emergencyFlag.escalation?.acknowledgedAt || null;
-      result.acceptedBy = emergencyFlag.escalation?.acknowledgedBy?.user
+      result.acceptedBy = emergencyFlag.escalation?.acknowledgedBy
         ? {
             firstName:
-              emergencyFlag.escalation.acknowledgedBy.user.firstName || null,
-            lastName:
-              emergencyFlag.escalation.acknowledgedBy.user.lastName || null,
+              emergencyFlag.escalation.acknowledgedBy.firstName || null,
+            lastName: emergencyFlag.escalation.acknowledgedBy.lastName || null,
           }
         : null;
 

@@ -18,6 +18,10 @@ const SupervisoryVisitsServices = require('./supervisoryVisitsServices');
 const UsersServices = require('./usersServices');
 
 const {
+  buildUserMembershipsSelect,
+} = require('../constants/assessmentConstants');
+
+const {
   ACCEPTABLE_ESCALATION_LEVELS,
   ESCALATION_LEVELS,
   NURSE_ESCALATION_LEVELS,
@@ -48,6 +52,7 @@ const {
   SUPERVISORY_VISIT_CAREGIVER_ROLES,
 } = require('../constants/supervisoryVisitsConstants');
 const {PrismaFactory} = require('../factories');
+const {withOrganizationMember} = require('../factories/responses/workItems');
 
 const NotificationsHelpers = require('../helpers/notificationsHelpers');
 
@@ -76,6 +81,24 @@ const {
 
 const {patientRecordSelect} = require('../utils/patientUtils');
 const {wrapWithPrismaTransaction} = require('../utils/prismaTransactionUtils');
+
+// Who raised a flag is a plain user: their name is the one of the flag's
+// organization, put on by withSubmitterMember.
+const SUBMITTER_MEMBERSHIPS = buildUserMembershipsSelect({
+  fields: ['firstName', 'lastName'],
+});
+
+const withSubmitterMember = ({escalation, organizationId}) => {
+  const submissionFlag = escalation?.submissionFlag;
+  if (submissionFlag?.submitter) {
+    submissionFlag.submitter = withOrganizationMember({
+      user: submissionFlag.submitter,
+      organizationId,
+    });
+  }
+
+  return escalation;
+};
 
 // Maps a submission flag color to the FollowUpTask / SupervisoryVisit `flagType`
 // integer (0 RED, 1 YELLOW); any other color falls back to 2 (other/manual).
@@ -673,7 +696,7 @@ module.exports = class EscalationServices {
                 flag: true,
                 reason: true,
                 description: true,
-                submitter: {select: {firstName: true, lastName: true}},
+                submitter: {select: {userOrganizations: SUBMITTER_MEMBERSHIPS}},
               },
             },
           },
@@ -701,7 +724,10 @@ module.exports = class EscalationServices {
 
       return {
         success: true,
-        doc: findResult.docs?.[0] || null,
+        doc: withSubmitterMember({
+          escalation: findResult.docs?.[0] || null,
+          organizationId,
+        }),
         redCount,
         yellowCount,
       };
@@ -738,7 +764,7 @@ module.exports = class EscalationServices {
         return {success: true, doc: null};
       }
 
-      return await PrismaFactory.findOne({
+      const result = await PrismaFactory.findOne({
         model: modelConstants.MODELS.SUBMISSION_FLAG_ESCALATION,
         query: {
           id: escalationId,
@@ -761,8 +787,7 @@ module.exports = class EscalationServices {
                 submitter: {
                   select: {
                     id: true,
-                    firstName: true,
-                    lastName: true,
+                    userOrganizations: SUBMITTER_MEMBERSHIPS,
                   },
                 },
                 submission: {select: flagSubmissionEvidenceSelect},
@@ -772,6 +797,12 @@ module.exports = class EscalationServices {
         },
         options: {bypassExtraQueries: true},
       });
+
+      return result.doc
+        ? Object.assign(result, {
+            doc: withSubmitterMember({escalation: result.doc, organizationId}),
+          })
+        : result;
     } catch (error) {
       return {success: false, doc: null, error};
     }

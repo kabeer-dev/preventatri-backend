@@ -171,7 +171,7 @@ module.exports = class CaregiversServices {
 
       const nameClause = buildNameSearchClause({
         name,
-        fields: ['user.firstName', 'user.lastName'],
+        fields: ['userOrganization.firstName', 'userOrganization.lastName'],
       });
       if (nameClause) {
         Object.assign(query, nameClause);
@@ -196,18 +196,10 @@ module.exports = class CaregiversServices {
               },
               user: {
                 select: {
+                  // Name, phone and address come from the auto-included
+                  // userOrganization: they are kept per organization.
                   id: true,
-                  firstName: true,
-                  lastName: true,
                   email: true,
-                  phoneNo: true,
-
-                  // Documented on the shared user response schema -- the
-                  // caregiver address lives on the user row.
-                  address: true,
-                  city: true,
-                  state: true,
-                  zipCode: true,
                   isVerified: true,
                   _count: {
                     select: {
