@@ -458,7 +458,9 @@ module.exports = class HhaVisitSyncServices {
   static async runResourceSync({organizationId, modifiedAfter, summary}) {
     // Not fatal: a failed master list only costs the human-readable reason
     // text. The raw MissedVisitReasonID is stored regardless.
-    const {reasonsById} = await HhaExchangeServices.fetchMissedVisitReasons();
+    const {reasonsById} = await HhaExchangeServices.fetchMissedVisitReasons({
+      organizationId,
+    });
 
     // The zone a clock time is read in when the record's own TimeZone element
     // is absent or unmapped. Same value the cron is scheduled in.
@@ -478,6 +480,7 @@ module.exports = class HhaVisitSyncServices {
       summary,
       fetchPage: async ({modifiedAfter: cursor, pageNumber}) =>
         await HhaExchangeServices.fetchVisitChanges({
+          organizationId,
           modifiedAfter: cursor,
           pageNumber,
         }),
@@ -520,6 +523,7 @@ module.exports = class HhaVisitSyncServices {
       summary,
       fetchPage: async ({modifiedAfter: cursor, pageNumber}) =>
         await HhaExchangeServices.fetchDeletedVisits({
+          organizationId,
           modifiedAfter: cursor,
           pageNumber,
         }),

@@ -9,6 +9,7 @@ const NursesServices = require(`./nursesServices`);
 const CaregiversServices = require(`./caregiversServices`);
 const HhaCaregiverSyncServices = require(`./hhaCaregiverSyncServices`);
 const HhaCoordinatorSyncServices = require(`./hhaCoordinatorSyncServices`);
+const HhaCredentialsServices = require(`./hhaCredentialsServices`);
 const HhaExchangeServices = require(`./hhaExchangeServices`);
 const HhaNurseSyncServices = require(`./hhaNurseSyncServices`);
 const HhaPatientSyncServices = require(`./hhaPatientSyncServices`);
@@ -66,6 +67,7 @@ module.exports = {
   PatientsServices,
   HhaCaregiverSyncServices,
   HhaCoordinatorSyncServices,
+  HhaCredentialsServices,
   HhaExchangeServices,
   HhaNurseSyncServices,
   HhaPatientSyncServices,

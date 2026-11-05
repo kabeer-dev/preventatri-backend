@@ -9,8 +9,6 @@
  * hand-built, where the shape is fixed and fully known.
  */
 
-const config = require('config');
-
 const {
   HHAX_XML_DECLARATION,
   HHAX_SOAP_ENV_NAMESPACE,
@@ -68,14 +66,14 @@ const buildNestedElement = ({name, children = ''}) =>
   `<${name}>${children}</${name}>`;
 
 /**
- * The credential block every operation requires. Read from config at call time
- * rather than module load so a credential rotation does not need a restart.
+ * The credential block every operation requires. The credentials belong to the
+ * organization the request is made for, so the caller hands them in.
  */
-const buildAuthenticationBlock = () => {
+const buildAuthenticationBlock = ({credentials}) => {
   const fields = {};
-  fields[HHAX_ENVELOPE_ELEMENTS.APP_NAME] = config.get('hhax.appName');
-  fields[HHAX_ENVELOPE_ELEMENTS.APP_SECRET] = config.get('hhax.appSecret');
-  fields[HHAX_ENVELOPE_ELEMENTS.APP_KEY] = config.get('hhax.appKey');
+  fields[HHAX_ENVELOPE_ELEMENTS.APP_NAME] = credentials.appName;
+  fields[HHAX_ENVELOPE_ELEMENTS.APP_SECRET] = credentials.appSecret;
+  fields[HHAX_ENVELOPE_ELEMENTS.APP_KEY] = credentials.appKey;
 
   return `<${HHAX_ENVELOPE_ELEMENTS.AUTHENTICATION}>${buildElements({fields})}</${HHAX_ENVELOPE_ELEMENTS.AUTHENTICATION}>`;
 };
@@ -89,10 +87,10 @@ const buildAuthenticationBlock = () => {
  *   elements, in schema order. Use buildElements to produce it.
  * @returns {string} The full envelope, ready to POST.
  */
-const buildEnvelope = ({operation, body = ''}) =>
+const buildEnvelope = ({operation, body = '', credentials}) =>
   `${HHAX_XML_DECLARATION}<soap:Envelope xmlns:soap="${HHAX_SOAP_ENV_NAMESPACE}">` +
   `<soap:Body><${operation} xmlns="${HHAX_XML_NAMESPACE}">` +
-  `${buildAuthenticationBlock()}${body}` +
+  `${buildAuthenticationBlock({credentials})}${body}` +
   `</${operation}></soap:Body></soap:Envelope>`;
 
 module.exports = {

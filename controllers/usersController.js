@@ -47,6 +47,7 @@ const {
   NursesServices,
   OrganizationsServices,
   OrganizationInvitationsServices,
+  HhaCredentialsServices,
   HhaSyncHistoryReadServices,
   HhaSyncWorklistServices,
 } = require('../services');
@@ -75,10 +76,6 @@ const {
   chunkArray,
 } = require('../utils/general');
 const {getTokenHeaderName} = require('../utils/getTokenHeaderUtils');
-
-const {
-  isHhaOrganization,
-} = require('../utils/hhaExchange/hhaOrganizationUtils');
 
 const {
   assertHhaManagedFieldsNotEdited,
@@ -413,22 +410,31 @@ module.exports = class UsersController {
     // Every role reads the organization's zone from here; the organization
     // endpoints themselves are not open to caregivers. The field is a getter
     // that recomputes on every read, so it is replaced, not mutated.
-    if (activeOrganization?.organizationId)
+    if (activeOrganization?.organizationId) {
+      const [timeZone, hhaConnection] = await Promise.all([
+        OrganizationsServices.getOrganizationTimeZone({
+          id: activeOrganization.organizationId,
+        }),
+        HhaCredentialsServices.isConnected({
+          organizationId: activeOrganization.organizationId,
+        }),
+      ]);
+
+      // A failed lookup is an error, not "HHA is off".
+      if (!hhaConnection.success) throw hhaConnection.error;
+
       Object.defineProperty(sanitizedUser, 'currentActiveOrganization', {
         value: Object.assign({}, activeOrganization, {
-          timeZone: await OrganizationsServices.getOrganizationTimeZone({
-            id: activeOrganization.organizationId,
-          }),
+          timeZone,
 
           // The frontend hides the HHAeXchange screens unless this is true.
-          hhaEnabled: isHhaOrganization({
-            organizationId: activeOrganization.organizationId,
-          }),
+          hhaEnabled: hhaConnection.isConnected,
         }),
         enumerable: true,
         configurable: true,
         writable: true,
       });
+    }
 
     return UsersResponsesFactories.singleUserInfoRetrievedRes({
       user: sanitizedUser,

@@ -166,7 +166,11 @@ const toResolvedCoordinator = ({
  *
  * @returns {Promise<Object[]|null>} null when coordinators cannot be read.
  */
-const resolveCoordinators = async ({entry, coordinatorLookup}) => {
+const resolveCoordinators = async ({
+  entry,
+  coordinatorLookup,
+  organizationId,
+}) => {
   const {coordinators, isKnown} = entry.coordinatorRef;
 
   if (!coordinatorLookup || !isKnown) return null;
@@ -187,6 +191,7 @@ const resolveCoordinators = async ({entry, coordinatorLookup}) => {
 
   const {success, doc} = await HhaExchangeServices.fetchPatientDemographics({
     patientId: entry.hhaPatientId,
+    organizationId,
   });
 
   const ids = success ? readCoordinatorIds({patientInfo: doc}) : [];
@@ -892,7 +897,11 @@ module.exports = class HhaPatientLinkSyncServices {
    *
    * @returns {Promise<{success: boolean, assigned: number}>} Never throws.
    */
-  static async applyPendingLinks({organizationId = null, userId = null}) {
+  static async applyPendingLinks({
+    organizationId = null,
+    userId = null,
+    isOrganizationBusy = null,
+  }) {
     try {
       const waiting = await findWaitingPatients({organizationId, userId});
 
@@ -904,6 +913,14 @@ module.exports = class HhaPatientLinkSyncServices {
       let assigned = 0;
 
       for (const [patientOrganizationId, patients] of byOrganization) {
+        // A sync running in that organization does this itself in its last step.
+        if (
+          isOrganizationBusy &&
+          (await isOrganizationBusy({organizationId: patientOrganizationId}))
+        ) {
+          continue;
+        }
+
         const summary = buildSummary({
           trigger: HHAX_SYNC_TRIGGERS.MANUAL.value,
           resource: HHAX_SYNC_RESOURCES.PATIENTS.value,
@@ -1036,7 +1053,11 @@ module.exports = class HhaPatientLinkSyncServices {
 
       const coordinators = patient.isDeleted
         ? null
-        : await resolveCoordinators({entry, coordinatorLookup});
+        : await resolveCoordinators({
+            entry,
+            coordinatorLookup,
+            organizationId,
+          });
 
       const plan = planPatientLinks({
         entry,

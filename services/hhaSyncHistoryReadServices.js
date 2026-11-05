@@ -538,7 +538,7 @@ const resolveWaitingPeople = async ({
  * it now instead of leaving it Running until the next sync starts.
  */
 const closeDeadRuns = async ({organizationId}) => {
-  if (await HhaSyncServices.isSyncRunning()) return;
+  if (await HhaSyncServices.isSyncRunning({organizationId})) return;
 
   // A run takes the lock just before it opens its row; skip rows that new.
   await HhaSyncHistoryServices.closeAbandonedRuns({

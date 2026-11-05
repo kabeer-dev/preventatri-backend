@@ -291,7 +291,9 @@ const PENDING_IMPORTERS = {
 const importPendingNow = async ({pending, organizationId}) => {
   const importer = PENDING_IMPORTERS[pending.resource];
 
-  if (!importer || (await HhaSyncServices.isSyncRunning())) return false;
+  if (!importer || (await HhaSyncServices.isSyncRunning({organizationId}))) {
+    return false;
+  }
 
   try {
     const {success} = await importer.importOne({
@@ -592,7 +594,7 @@ module.exports = class HhaSyncWorklistServices {
 
       // A running pass listed the counties before this one existed, and would
       // unlock these patients again as unresolved.
-      if (await HhaSyncServices.isSyncRunning()) {
+      if (await HhaSyncServices.isSyncRunning({organizationId})) {
         return Object.assign(outcome, {isSyncRunning: true});
       }
 
@@ -1461,10 +1463,12 @@ module.exports = class HhaSyncWorklistServices {
    */
   static async applyPendingLinksForUser({userId}) {
     try {
-      if (await HhaSyncServices.isSyncRunning()) return 0;
-
+      // Each organization's own run stands in for this, so only a person's
+      // organizations that are not mid-sync are done here.
       const {assigned} = await HhaPatientLinkSyncServices.applyPendingLinks({
         userId,
+        isOrganizationBusy: ({organizationId}) =>
+          HhaSyncServices.isSyncRunning({organizationId}),
       });
 
       return assigned;

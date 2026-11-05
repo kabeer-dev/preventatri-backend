@@ -1888,6 +1888,27 @@ module.exports = {
       relationDependencies: {},
     },
 
+    // The encrypted secret and key are left out of defaultFields on purpose, so
+    // no read returns them unless a caller asks for them by name.
+    [MODELS.HHA_CREDENTIAL]: {
+      defaultFields: [
+        'id',
+        'organizationId',
+        'appName',
+        'isConnected',
+        'lastVerifiedAt',
+        'lastError',
+        'connectedByUserId',
+        'createdAt',
+        'updatedAt',
+      ],
+
+      fieldMappings: {},
+      relations: {},
+      autoIncludeRelations: [],
+      relationDependencies: {},
+    },
+
     // Sync history rows are never soft deleted.
     [MODELS.HHA_SYNC_RUN]: {
       defaultFields: [

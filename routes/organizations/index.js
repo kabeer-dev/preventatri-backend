@@ -87,6 +87,48 @@ router.patch(
   catchAsyncMiddleware(OrganizationsController.updateTimeZone)
 );
 
+// 📖 Whether the current organization is connected to HHAeXchange
+// GET /organizations/hha-credentials
+// Access: Admins only. The secret and key are never returned.
+router.get(
+  '/hha-credentials',
+  aclAccessMiddleware({
+    entityToCheck: ORGANIZATION_ENTITY,
+    permissionKey: CRUD_PERMISSIONS.UPDATE,
+    isAdminAction: true,
+  }),
+  catchAsyncMiddleware(OrganizationsController.getHhaCredentials)
+);
+
+// 🔄 Connect the current organization to HHAeXchange
+// PUT /organizations/hha-credentials
+// Access: Admins only. HHAeXchange must accept the credentials before they are saved.
+router.put(
+  '/hha-credentials',
+  validatorMiddleware({
+    validateFunction: organizationsSchema.validateSaveHhaCredentialsRequest,
+  }),
+  aclAccessMiddleware({
+    entityToCheck: ORGANIZATION_ENTITY,
+    permissionKey: CRUD_PERMISSIONS.UPDATE,
+    isAdminAction: true,
+  }),
+  catchAsyncMiddleware(OrganizationsController.saveHhaCredentials)
+);
+
+// 🗑️ Disconnect the current organization from HHAeXchange
+// DELETE /organizations/hha-credentials
+// Access: Admins only
+router.delete(
+  '/hha-credentials',
+  aclAccessMiddleware({
+    entityToCheck: ORGANIZATION_ENTITY,
+    permissionKey: CRUD_PERMISSIONS.UPDATE,
+    isAdminAction: true,
+  }),
+  catchAsyncMiddleware(OrganizationsController.disconnectHhaCredentials)
+);
+
 // 📖 Get current organization's RED and YELLOW escalation policies
 // GET /organizations/escalation-policies
 // Access: Admin, Nurse, Case Manager

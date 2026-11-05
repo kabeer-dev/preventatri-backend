@@ -275,7 +275,7 @@ module.exports = {
         'A caregiver, nurse or case manager email follows HHAeXchange whenever HHAeXchange has a valid address that no other user here holds; when HHAeXchange has none, the stored email (placeholder or admin-set) is kept. ' +
         'Imported people are created UNVERIFIED with no invitation email, for an admin to review and invite. ' +
         'Resources are reconciled independently, so a caregiver-feed outage still leaves patients imported; the per-resource outcome is stored on the sync run, not returned here. ' +
-        'A Redis lock allows one run at a time across all replicas, and a queued-slot marker rejects a second press before the worker picks the job up. Admin only. No request body.',
+        'A Redis lock allows one run at a time per organization across all replicas (runs for different organizations do not block each other), and a queued-slot marker rejects a second press from the same organization before the worker picks the job up. Admin only. No request body.',
       responses: {
         202: {
           description: 'Sync accepted and queued',

@@ -32,6 +32,22 @@ const workingHoursSchema = {
   },
 };
 
+const hhaConnectionSchema = {
+  type: 'object',
+  description:
+    "The organization's HHAeXchange connection. The secret and key are never part of it.",
+  properties: {
+    isConnected: {type: 'boolean', example: true},
+    appName: {type: 'string', nullable: true, example: 'my-agency-app'},
+    lastVerifiedAt: {
+      type: 'string',
+      format: 'date-time',
+      nullable: true,
+    },
+    lastError: {type: 'string', nullable: true, example: null},
+  },
+};
+
 const timeZoneSchema = {
   type: 'object',
   description:
@@ -410,6 +426,93 @@ module.exports = {
         404: {
           description: 'Not Found - Organization not found',
         },
+      },
+    }),
+  },
+
+  '/api/v1/organizations/hha-credentials': {
+    get: createSwaggerDocs({
+      tags: ['Organizations'],
+      summary: "Get the organization's HHAeXchange connection",
+      description:
+        "Whether the caller's current active organization is connected to HHAeXchange. The secret and key are never returned. (Admin only)",
+      responses: {
+        200: {
+          description: 'Connection retrieved successfully',
+          message: {
+            description: 'A message describing the result',
+            example: 'Data retrieved successfully',
+          },
+          body: {
+            description: 'The connection state',
+            type: 'object',
+            properties: {hhaCredentials: hhaConnectionSchema},
+          },
+        },
+        401: {description: 'Unauthorized - Invalid or missing token'},
+        403: {description: 'Forbidden - Insufficient permissions'},
+      },
+    }),
+
+    put: createSwaggerDocs({
+      tags: ['Organizations'],
+      summary: 'Connect the organization to HHAeXchange',
+      description:
+        "Saves the HHAeXchange credentials of the caller's current active organization. HHAeXchange must accept them first; otherwise nothing is saved and an existing connection stays as it was. The secret and key are stored encrypted and never returned. (Admin only)",
+      requestBody: {
+        fields: {
+          appName: {type: 'string', example: 'my-agency-app'},
+          appSecret: {type: 'string', example: 'app-secret'},
+          appKey: {type: 'string', example: 'app-key'},
+        },
+        required: ['appName', 'appSecret', 'appKey'],
+      },
+      responses: {
+        200: {
+          description: 'Connected successfully',
+          message: {
+            description: 'A message describing the result',
+            example: 'Data updated successfully',
+          },
+          body: {
+            description: 'The connection state',
+            type: 'object',
+            properties: {hhaCredentials: hhaConnectionSchema},
+          },
+        },
+        400: {
+          description:
+            'Bad Request - Validation error, or HHAeXchange did not accept the credentials (HHA_CREDENTIALS_REJECTED)',
+        },
+        502: {
+          description:
+            'Bad Gateway - HHAeXchange could not be reached to check the credentials (HHA_UNREACHABLE). Nothing was saved.',
+        },
+        401: {description: 'Unauthorized - Invalid or missing token'},
+        403: {description: 'Forbidden - Insufficient permissions'},
+      },
+    }),
+
+    delete: createSwaggerDocs({
+      tags: ['Organizations'],
+      summary: 'Disconnect the organization from HHAeXchange',
+      description:
+        "Removes the stored HHAeXchange credentials of the caller's current active organization. The sync stops for it. (Admin only)",
+      responses: {
+        200: {
+          description: 'Disconnected successfully',
+          message: {
+            description: 'A message describing the result',
+            example: 'Data deleted successfully',
+          },
+          body: {
+            description: 'The connection state after disconnecting',
+            type: 'object',
+            properties: {hhaCredentials: hhaConnectionSchema},
+          },
+        },
+        401: {description: 'Unauthorized - Invalid or missing token'},
+        403: {description: 'Forbidden - Insufficient permissions'},
       },
     }),
   },

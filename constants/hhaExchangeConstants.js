@@ -1292,11 +1292,20 @@ const HHAX_SYNC_RESOURCES_VALUES = Object.values(HHAX_SYNC_RESOURCES).map(
  *
  * Resource-agnostic on purpose: one run covers every resource in
  * HHAX_SYNC_RESOURCES, so one lock is what stops the nightly job and a button
- * press overlapping. Renamed from 'hhax:patient-sync:lock' when caregivers
+ * press overlapping. One lock PER ORGANIZATION (this prefix + the organization
+ * id): a sync in one organization never blocks another's. Renamed from 'hhax:patient-sync:lock' when caregivers
  * joined the run -- if you are debugging a stuck 409, this is the key to
  * inspect.
  */
-const HHAX_SYNC_LOCK_KEY = 'hhax:sync:lock';
+const HHAX_SYNC_LOCK_KEY_PREFIX = 'hhax:sync:lock:';
+
+/**
+ * Claimed by the replica that runs an organization's nightly sync, so a second
+ * replica walking the same list does not run it again after the first one's lock
+ * is released. Shorter than a day, so tomorrow night's run is never blocked.
+ */
+const HHAX_NIGHTLY_CLAIM_KEY_PREFIX = 'hhax:sync:nightly:';
+const HHAX_NIGHTLY_CLAIM_TTL_MS = 20 * 60 * 60 * 1000;
 
 /**
  * Claimed by the controller before it enqueues, released by the worker once the
@@ -1307,7 +1316,7 @@ const HHAX_SYNC_LOCK_KEY = 'hhax:sync:lock';
  * Not a fixed BullMQ jobId: that only dedupes while the job exists in Redis, so
  * a retained failed job would silently swallow later presses.
  */
-const HHAX_SYNC_QUEUED_KEY = 'hhax:sync:queued';
+const HHAX_SYNC_QUEUED_KEY_PREFIX = 'hhax:sync:queued:';
 
 // Only has to cover enqueue -> pickup, so minutes rather than the lock's hour.
 const HHAX_SYNC_QUEUED_TTL_MS = 10 * 60 * 1000;
@@ -1324,6 +1333,12 @@ const HHAX_SYNC_RUN_ERROR_IDS = {
 
   // A runner threw outside its own error handling.
   RUN_CRASHED: 'RUN_CRASHED',
+
+  // The organization has no connected HHAeXchange credentials, so nothing was sent.
+  HHA_NOT_CONNECTED: 'HHA_NOT_CONNECTED',
+
+  // The organization's credentials could not be read (database or key problem).
+  HHA_CREDENTIALS_UNAVAILABLE: 'HHA_CREDENTIALS_UNAVAILABLE',
 };
 
 // A feed failure with no HHA error id is stored as e.g. HTTP_403.
@@ -1790,8 +1805,10 @@ module.exports = {
   HHA_MANAGED_NURSE_FIELDS,
   HHAX_SYNC_RESOURCES,
   HHAX_SYNC_RESOURCES_VALUES,
-  HHAX_SYNC_LOCK_KEY,
-  HHAX_SYNC_QUEUED_KEY,
+  HHAX_SYNC_LOCK_KEY_PREFIX,
+  HHAX_NIGHTLY_CLAIM_KEY_PREFIX,
+  HHAX_NIGHTLY_CLAIM_TTL_MS,
+  HHAX_SYNC_QUEUED_KEY_PREFIX,
   HHAX_SYNC_QUEUED_TTL_MS,
   HHAX_SYNC_RUN_ERROR_IDS,
   HHA_SYNC_RUN_HTTP_ERROR_PREFIX,

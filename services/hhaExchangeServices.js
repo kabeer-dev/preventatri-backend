@@ -9,6 +9,8 @@
  * Named `fetch*` per .claude/rules.md: these are API requests, not local reads.
  */
 
+const HhaCredentialsServices = require('./hhaCredentialsServices');
+
 const {
   HHAX_OPERATIONS,
   HHAX_PAGINATION_ELEMENTS,
@@ -29,6 +31,7 @@ const {
   HHAX_STATUS_FILTER_ALL,
   HHAX_REQUEST_ELEMENTS,
   HHAX_FIRST_PAGE_NUMBER,
+  HHAX_SYNC_RUN_ERROR_IDS,
 } = require('../constants/hhaExchangeConstants');
 
 const {
@@ -42,6 +45,51 @@ const {
   buildElements,
   buildNestedElement,
 } = require('../utils/hhaExchange/soapEnvelope');
+
+// Code-only errors: they are stored as the run's error id and logged, so they
+// must never carry the raw database or key error.
+const HHA_NOT_CONNECTED_ERROR = {
+  reason: HHAX_SYNC_RUN_ERROR_IDS.HHA_NOT_CONNECTED,
+};
+
+const HHA_CREDENTIALS_UNAVAILABLE_ERROR = {
+  reason: HHAX_SYNC_RUN_ERROR_IDS.HHA_CREDENTIALS_UNAVAILABLE,
+};
+
+/**
+ * Sends one operation with the credentials of the organization it is for.
+ *
+ * Returns the usual {success, data, error} envelope. An organization without
+ * connected credentials is answered with HHA_NOT_CONNECTED and nothing is sent,
+ * so one organization's request can never be signed with another's credentials.
+ *
+ * There is no fallback to any shared credentials. A call without an
+ * organization is refused too, because the credential lookup is not scoped to
+ * the request and would otherwise hand back another organization's.
+ */
+const callForOrganization = async ({organizationId, operation, body}) => {
+  if (!organizationId) {
+    return {success: false, data: null, error: HHA_NOT_CONNECTED_ERROR};
+  }
+
+  const {success, credentials} = await HhaCredentialsServices.getCredentials({
+    organizationId,
+  });
+
+  if (!success) {
+    return {
+      success: false,
+      data: null,
+      error: HHA_CREDENTIALS_UNAVAILABLE_ERROR,
+    };
+  }
+
+  if (!credentials) {
+    return {success: false, data: null, error: HHA_NOT_CONNECTED_ERROR};
+  }
+
+  return await callHhaOperation({operation, body, credentials});
+};
 
 /**
  * Every change feed shares one Pagination shape, so it is read once here
@@ -87,6 +135,7 @@ const readPagination = ({data}) => {
  * so the fields object below must stay in schema order.
  */
 const fetchChangeFeedPage = async ({
+  organizationId,
   operation,
   changesInfoElement,
   modifiedAfter,
@@ -96,7 +145,8 @@ const fetchChangeFeedPage = async ({
   fields[HHAX_REQUEST_ELEMENTS.MODIFIED_AFTER] = modifiedAfter;
   fields[HHAX_REQUEST_ELEMENTS.PAGE_NUMBER] = pageNumber;
 
-  const {success, data, error} = await callHhaOperation({
+  const {success, data, error} = await callForOrganization({
+    organizationId,
     operation,
     body: buildElements({fields}),
   });
@@ -119,11 +169,17 @@ const fetchChangeFeedPage = async ({
  * One record from a demographics operation. Request and response both wrap
  * the fields in the same `infoElement`, e.g. `<CaregiverInfo><ID>`.
  */
-const fetchDemographicsRecord = async ({operation, infoElement, id}) => {
+const fetchDemographicsRecord = async ({
+  organizationId,
+  operation,
+  infoElement,
+  id,
+}) => {
   const fields = {};
   fields[HHAX_DEMOGRAPHICS_REQUEST_ELEMENTS.ID] = id;
 
-  const {success, data, error} = await callHhaOperation({
+  const {success, data, error} = await callForOrganization({
+    organizationId,
     operation,
     body: buildNestedElement({
       name: infoElement,
@@ -147,15 +203,18 @@ module.exports = class HhaExchangeServices {
    * One page of the patient change feed for the whole agency.
    *
    * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @param {string} params.modifiedAfter - Already formatted per HHAX_MODIFIED_AFTER_FORMAT.
    * @param {number} [params.pageNumber]
    * @returns {Promise<{success, docs, pagination, error}>}
    */
   static async fetchPatientChanges({
+    organizationId,
     modifiedAfter,
     pageNumber = HHAX_FIRST_PAGE_NUMBER,
   }) {
     return await fetchChangeFeedPage({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_PATIENT_CHANGES,
       changesInfoElement: HHAX_PATIENT_ELEMENTS.CHANGES_INFO,
       modifiedAfter,
@@ -171,20 +230,54 @@ module.exports = class HhaExchangeServices {
    * shape — which is why both go through one helper rather than two near-copies.
    *
    * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @param {string} params.modifiedAfter - Already formatted per HHAX_MODIFIED_AFTER_FORMAT.
    * @param {number} [params.pageNumber]
    * @returns {Promise<{success, docs, pagination, error}>}
    */
   static async fetchCaregiverChanges({
+    organizationId,
     modifiedAfter,
     pageNumber = HHAX_FIRST_PAGE_NUMBER,
   }) {
     return await fetchChangeFeedPage({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_CAREGIVER_CHANGES,
       changesInfoElement: HHAX_CAREGIVER_ELEMENTS.CHANGES_INFO,
       modifiedAfter,
       pageNumber,
     });
+  }
+
+  /**
+   * Asks HHAeXchange whether a set of credentials is accepted, before they are
+   * stored. Uses the language list because it takes Authentication only, so
+   * the check sends no PHI and changes nothing.
+   *
+   * @param {Object} params
+   * @param {{appName: string, appSecret: string, appKey: string}} params.credentials
+   * One attempt only: an admin is waiting on this.
+   *
+   * @returns {Promise<{success: boolean, isUnreachable: boolean, error: Object|null}>}
+   *   isUnreachable is true when HHAeXchange did not answer at all (transport
+   *   failure, or a 5xx with no application answer), so a refusal and an outage
+   *   are told apart.
+   */
+  static async verifyCredentials({credentials}) {
+    const {success, error} = await callHhaOperation({
+      operation: HHAX_OPERATIONS.GET_LANGUAGES,
+      credentials,
+      maxRetries: 1,
+    });
+
+    const isUnreachable =
+      !success &&
+      Boolean(
+        error?.transportError ||
+        (!error?.resultStatus && error?.httpStatus >= 500)
+      );
+
+    return {success, isUnreachable, error};
   }
 
   /**
@@ -200,14 +293,13 @@ module.exports = class HhaExchangeServices {
    * falls back to an empty map, every caregiver language records an
    * UNMAPPED_LANGUAGE exception, and the rest of the record still imports.
    *
-   * Takes no parameters -- the operation has no filters at all -- so it is
-   * declared zero-arg rather than with an empty destructure, matching
-   * HhaSyncServices.isSyncRunning.
-   *
+   * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @returns {Promise<{success, languageNamesById, error}>}
    */
-  static async fetchLanguages() {
-    const {success, data, error} = await callHhaOperation({
+  static async fetchLanguages({organizationId}) {
+    const {success, data, error} = await callForOrganization({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_LANGUAGES,
     });
 
@@ -257,19 +349,18 @@ module.exports = class HhaExchangeServices {
    * omitting it returns every office and each record carries its own Offices
    * block anyway.
    *
-   * Takes no parameters -- the roster is agency-wide and the one filter is
-   * fixed -- so it is declared zero-arg rather than with an empty destructure,
-   * matching fetchLanguages.
-   *
+   * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @returns {Promise<{success, docs, error}>}
    */
-  static async fetchCoordinators() {
+  static async fetchCoordinators({organizationId}) {
     const filterFields = {};
 
     filterFields[HHAX_COORDINATOR_REQUEST_ELEMENTS.STATUS] =
       HHAX_STATUS_FILTER_ALL;
 
-    const {success, data, error} = await callHhaOperation({
+    const {success, data, error} = await callForOrganization({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_COORDINATORS,
       body: buildNestedElement({
         name: HHAX_COORDINATOR_REQUEST_ELEMENTS.SEARCH_FILTERS,
@@ -307,12 +398,13 @@ module.exports = class HhaExchangeServices {
    *
    * @returns {Promise<{success, docs, error}>}
    */
-  static async fetchNurses() {
+  static async fetchNurses({organizationId}) {
     const fields = {};
 
     fields[HHAX_NURSE_REQUEST_ELEMENTS.STATUS] = HHAX_STATUS_FILTER_ALL;
 
-    const {success, data, error} = await callHhaOperation({
+    const {success, data, error} = await callForOrganization({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_NURSES,
       body: buildElements({fields}),
     });
@@ -335,10 +427,12 @@ module.exports = class HhaExchangeServices {
    *
    * @param {Object} params
    * @param {string|number} params.caregiverId
+   * @param {string} params.organizationId - The organization the request is for.
    * @returns {Promise<{success, doc, error}>}
    */
-  static async fetchCaregiverDemographics({caregiverId}) {
+  static async fetchCaregiverDemographics({caregiverId, organizationId}) {
     return await fetchDemographicsRecord({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_CAREGIVER_DEMOGRAPHICS,
       infoElement: HHAX_CAREGIVER_DEMOGRAPHICS_ELEMENTS.CAREGIVER_INFO,
       id: caregiverId,
@@ -351,10 +445,12 @@ module.exports = class HhaExchangeServices {
    *
    * @param {Object} params
    * @param {string|number} params.patientId
+   * @param {string} params.organizationId - The organization the request is for.
    * @returns {Promise<{success, doc, error}>}
    */
-  static async fetchPatientDemographics({patientId}) {
+  static async fetchPatientDemographics({patientId, organizationId}) {
     return await fetchDemographicsRecord({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_PATIENT_DEMOGRAPHICS,
       infoElement: HHAX_PATIENT_DEMOGRAPHICS_ELEMENTS.PATIENT_INFO,
       id: patientId,
@@ -378,15 +474,18 @@ module.exports = class HhaExchangeServices {
    * walkFeedByCursor in syncRunUtils.
    *
    * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @param {string} params.modifiedAfter - Already formatted, WITHOUT the Z.
    * @param {number} [params.pageNumber]
    * @returns {Promise<{success, docs, pagination, error}>}
    */
   static async fetchVisitChanges({
+    organizationId,
     modifiedAfter,
     pageNumber = HHAX_FIRST_PAGE_NUMBER,
   }) {
     return await fetchChangeFeedPage({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_VISIT_CHANGES,
       changesInfoElement: HHAX_VISIT_ELEMENTS.CHANGES_INFO,
       modifiedAfter,
@@ -404,15 +503,18 @@ module.exports = class HhaExchangeServices {
    * Same request shape and the same no-Z rule as fetchVisitChanges.
    *
    * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @param {string} params.modifiedAfter - Already formatted, WITHOUT the Z.
    * @param {number} [params.pageNumber]
    * @returns {Promise<{success, docs, pagination, error}>}
    */
   static async fetchDeletedVisits({
+    organizationId,
     modifiedAfter,
     pageNumber = HHAX_FIRST_PAGE_NUMBER,
   }) {
     return await fetchChangeFeedPage({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_DELETED_VISITS,
       changesInfoElement: HHAX_DELETED_VISIT_ELEMENTS.CHANGES_INFO,
       modifiedAfter,
@@ -433,13 +535,13 @@ module.exports = class HhaExchangeServices {
    * caller falls back to an empty map, the raw MissedVisitReasonID is stored
    * regardless, and the rest of the record still imports.
    *
-   * Takes no parameters -- the operation has no filters at all -- so it is
-   * declared zero-arg, matching fetchLanguages.
-   *
+   * @param {Object} params
+   * @param {string} params.organizationId - The organization the request is for.
    * @returns {Promise<{success, reasonsById, error}>}
    */
-  static async fetchMissedVisitReasons() {
-    const {success, data, error} = await callHhaOperation({
+  static async fetchMissedVisitReasons({organizationId}) {
+    const {success, data, error} = await callForOrganization({
+      organizationId,
       operation: HHAX_OPERATIONS.GET_MISSED_VISIT_REASONS,
     });
 

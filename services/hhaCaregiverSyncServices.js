@@ -517,12 +517,14 @@ module.exports = class HhaCaregiverSyncServices {
     });
 
     const {success, doc} = await HhaExchangeServices.fetchCaregiverDemographics(
-      {caregiverId: hhaId}
+      {caregiverId: hhaId, organizationId}
     );
 
     if (!success || !doc) return {success: false};
 
-    const {languageNamesById} = await HhaExchangeServices.fetchLanguages();
+    const {languageNamesById} = await HhaExchangeServices.fetchLanguages({
+      organizationId,
+    });
 
     await processCaregiverPage({
       records: [toCaregiverFeedRecord({demographics: doc})],
@@ -576,7 +578,7 @@ module.exports = class HhaCaregiverSyncServices {
     // an UNMAPPED_LANGUAGE exception and the rest of the record still imports,
     // which beats failing a whole roster over one lookup call.
     const {success: languagesResolved, languageNamesById} =
-      await HhaExchangeServices.fetchLanguages();
+      await HhaExchangeServices.fetchLanguages({organizationId});
 
     if (!languagesResolved) {
       logger.warn(
@@ -587,6 +589,7 @@ module.exports = class HhaCaregiverSyncServices {
     return await walkPagedFeed({
       fetchPage: async ({pageNumber}) =>
         await HhaExchangeServices.fetchCaregiverChanges({
+          organizationId,
           modifiedAfter,
           pageNumber,
         }),

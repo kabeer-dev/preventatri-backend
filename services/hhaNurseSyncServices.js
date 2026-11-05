@@ -145,7 +145,11 @@ const buildRosterById = ({docs, summary}) => {
  *
  * @returns {{items: Object[], failed: number}} `items` pairs roster and record.
  */
-const fetchNurseDemographics = async ({rosterById, summary}) => {
+const fetchNurseDemographics = async ({
+  rosterById,
+  organizationId,
+  summary,
+}) => {
   const items = [];
   let failed = 0;
 
@@ -158,6 +162,7 @@ const fetchNurseDemographics = async ({rosterById, summary}) => {
       const {success, doc} =
         await HhaExchangeServices.fetchCaregiverDemographics({
           caregiverId: nurseId,
+          organizationId,
         });
 
       if (!success || !doc) {
@@ -964,7 +969,9 @@ module.exports = class HhaNurseSyncServices {
       organizationId,
     });
 
-    const {success, docs} = await HhaExchangeServices.fetchNurses();
+    const {success, docs} = await HhaExchangeServices.fetchNurses({
+      organizationId,
+    });
 
     const rosterEntry = success
       ? buildRosterById({docs, summary}).get(String(hhaId))
@@ -974,6 +981,7 @@ module.exports = class HhaNurseSyncServices {
 
     const {items} = await fetchNurseDemographics({
       rosterById: new Map([[String(hhaId), rosterEntry]]),
+      organizationId,
       summary,
     });
 
@@ -1001,7 +1009,9 @@ module.exports = class HhaNurseSyncServices {
     summary,
     runContext = buildRunContext(),
   }) {
-    const {success, docs, error} = await HhaExchangeServices.fetchNurses();
+    const {success, docs, error} = await HhaExchangeServices.fetchNurses({
+      organizationId,
+    });
 
     // nurseIds stays null: the caregiver runner reads that as "cannot
     // classify" and declines to run.
@@ -1024,7 +1034,11 @@ module.exports = class HhaNurseSyncServices {
 
     runContext.nurseIds = new Set(rosterById.keys());
 
-    const {items, failed} = await fetchNurseDemographics({rosterById, summary});
+    const {items, failed} = await fetchNurseDemographics({
+      rosterById,
+      organizationId,
+      summary,
+    });
 
     // Every call failing is an outage (or a revoked method), not bad records.
     if (items.length === 0 && failed > 0) {

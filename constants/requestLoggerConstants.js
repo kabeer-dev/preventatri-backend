@@ -212,6 +212,15 @@ const AUDIT_ROUTE_CONFIG = {
     model: MODELS.ORGANIZATION,
     resourceIsOrganization: true,
   },
+
+  // Logged against the organization: the credentials row has no id in the URL,
+  // and its secret and key must never reach a snapshot.
+  'organizations/hha-credentials': {
+    resourceType: 'hhaCredentials',
+    resource: 'HHAeXchange Credentials',
+    model: MODELS.ORGANIZATION,
+    resourceIsOrganization: true,
+  },
   'sessions/signout-other-devices': {
     resourceType: 'SignoutAllOtherDevices',
     resource: SYSTEM_ENTITIES.signoutAllOtherDevices.label,
@@ -336,8 +345,8 @@ const RECOGNIZED_PATH_SUFFIXES_BY_RESOURCE = {
  * These fields will be replaced with '[REDACTED]'
  */
 const REDACTED_BODY_FIELDS = [
-  // HHAeXchange credentials — never appear in a request body today, but the
-  // integration reads them from config and they must never be loggable.
+  // HHAeXchange credentials, sent in the body of PUT /organizations/hha-credentials.
+  // They must never be loggable: do not remove these two.
   'appSecret',
   'appKey',
   'password',

@@ -430,6 +430,7 @@ module.exports = class HhaPatientSyncServices {
     const outcome = await walkPagedFeed({
       fetchPage: async ({pageNumber}) =>
         await HhaExchangeServices.fetchPatientChanges({
+          organizationId,
           modifiedAfter,
           pageNumber,
         }),

@@ -51,6 +51,8 @@ const UUID_PATTERN =
 const isUuidLike = ({value}) =>
   typeof value === 'string' && UUID_PATTERN.test(value);
 
+module.exports.isUuidLike = isUuidLike;
+
 /**
  * Turn a camelCase model field name into a display label.
  * e.g. "voidReason" -> "Void Reason"

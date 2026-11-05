@@ -6,6 +6,16 @@ module.exports.HHA_EXCHANGE_ERRORS_TYPES = {
     value: 'HHA_SYNC_FAILED',
   },
 
+  // HHAeXchange refused the credentials an admin tried to save.
+  hhaCredentialsRejected: {
+    value: 'HHA_CREDENTIALS_REJECTED',
+  },
+
+  // HHAeXchange did not answer, so the credentials could not be checked.
+  hhaUnreachable: {
+    value: 'HHA_UNREACHABLE',
+  },
+
   // Distinct from syncFailed: the run never started, so nothing was imported
   // and retrying immediately is the right advice.
   syncEnqueueFailed: {

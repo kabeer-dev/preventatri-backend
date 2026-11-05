@@ -30,6 +30,34 @@ module.exports = class HhaExchangeErrorsFactories {
     });
   }
 
+  /**
+   * HHAeXchange did not accept the credentials an admin tried to save. 400,
+   * not 401: the caller's own session is fine, the input is what failed.
+   */
+  static credentialsRejectedErr({customMessage} = {}) {
+    return new AppError({
+      message:
+        customMessage ||
+        'HHAeXchange did not accept these credentials. Check them and try again.',
+      statusCode: 400,
+      error: {type: HHA_EXCHANGE_ERRORS_TYPES.hhaCredentialsRejected.value},
+    });
+  }
+
+  /**
+   * HHAeXchange did not answer (down, timing out), so nothing is known about
+   * the credentials. 502: the input may well be fine, try again later.
+   */
+  static unreachableErr({customMessage} = {}) {
+    return new AppError({
+      message:
+        customMessage ||
+        'HHAeXchange could not be reached to check these credentials. Try again in a few minutes.',
+      statusCode: 502,
+      error: {type: HHA_EXCHANGE_ERRORS_TYPES.hhaUnreachable.value},
+    });
+  }
+
   static syncFailedErr({customMessage} = {}) {
     return new AppError({
       message: customMessage || 'HHAeXchange sync failed',

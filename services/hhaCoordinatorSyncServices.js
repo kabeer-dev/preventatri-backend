@@ -502,7 +502,9 @@ module.exports = class HhaCoordinatorSyncServices {
       organizationId,
     });
 
-    const {success, docs} = await HhaExchangeServices.fetchCoordinators();
+    const {success, docs} = await HhaExchangeServices.fetchCoordinators({
+      organizationId,
+    });
 
     const record = success
       ? docs.find(
@@ -538,8 +540,9 @@ module.exports = class HhaCoordinatorSyncServices {
    * @returns {Promise<{success: boolean, error: Object|null}>}
    */
   static async runResourceSync({organizationId, summary}) {
-    const {success, docs, error} =
-      await HhaExchangeServices.fetchCoordinators();
+    const {success, docs, error} = await HhaExchangeServices.fetchCoordinators({
+      organizationId,
+    });
 
     if (!success) return {success: false, error};
 

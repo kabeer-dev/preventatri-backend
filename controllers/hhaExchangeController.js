@@ -89,13 +89,13 @@ module.exports = class HhaExchangeController {
     const runId = randomUUID();
 
     // Pre-check for a clean 409 with a message.
-    if (await HhaSyncServices.isSyncRunning()) {
+    if (await HhaSyncServices.isSyncRunning({organizationId})) {
       throw HhaExchangeErrorsFactories.syncAlreadyRunningErr();
     }
 
     // ...then claim atomically: the check above cannot stand alone now that the
     // lock is taken inside the worker. See claimQueuedSlot.
-    if (!(await HhaSyncServices.claimQueuedSlot({runId}))) {
+    if (!(await HhaSyncServices.claimQueuedSlot({organizationId, runId}))) {
       throw HhaExchangeErrorsFactories.syncAlreadyRunningErr();
     }
 
@@ -108,7 +108,7 @@ module.exports = class HhaExchangeController {
 
     // Without this a failed enqueue blocks the button for the marker's TTL.
     if (!enqueued) {
-      await HhaSyncServices.releaseQueuedSlot({runId});
+      await HhaSyncServices.releaseQueuedSlot({organizationId, runId});
 
       throw HhaExchangeErrorsFactories.syncEnqueueFailedErr();
     }
@@ -124,7 +124,9 @@ module.exports = class HhaExchangeController {
    * so a client mounting mid-run would otherwise show an idle button.
    */
   static async getHhaSyncStatus(req, res, next) {
-    const isRunning = await HhaSyncServices.isSyncPendingOrRunning();
+    const isRunning = await HhaSyncServices.isSyncPendingOrRunning({
+      organizationId: getOrganizationId({req}),
+    });
 
     return HhaExchangeResponsesFactories.syncStatusRetrieved({isRunning});
   }

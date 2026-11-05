@@ -139,7 +139,7 @@ const readResult = ({parsed}) => {
 };
 
 /** A single request attempt. Returns the parsed body even on a non-2xx. */
-const attemptRequest = async ({operation, body}) => {
+const attemptRequest = async ({operation, body, credentials}) => {
   const startedAt = getEpochMillis();
 
   try {
@@ -149,7 +149,7 @@ const attemptRequest = async ({operation, body}) => {
         'Content-Type': HHAX_CONTENT_TYPE,
         SOAPAction: `${HHAX_SOAP_ACTION_BASE}${operation}`,
       },
-      body: buildEnvelope({operation, body}),
+      body: buildEnvelope({operation, body, credentials}),
       signal: AbortSignal.timeout(config.get('hhax.requestTimeoutMs')),
     });
 
@@ -185,16 +185,23 @@ const attemptRequest = async ({operation, body}) => {
  * @param {Object} params
  * @param {string} params.operation - An HHAX_OPERATIONS value.
  * @param {string} [params.body] - Operation-specific XML, in schema order.
+ * @param {Object} params.credentials - The organization's appName, appSecret and appKey.
+ * @param {number} [params.maxRetries] - Attempts before giving up; defaults to
+ *   hhax.maxRetries. An interactive check passes 1 so the caller is not kept waiting.
  * @returns {Promise<{success: boolean, data: Object|null, error: Object|null}>}
  */
-const callHhaOperation = async ({operation, body = ''}) => {
-  const maxRetries = config.get('hhax.maxRetries');
+const callHhaOperation = async ({
+  operation,
+  body = '',
+  credentials,
+  maxRetries = config.get('hhax.maxRetries'),
+}) => {
   const retryDelayMs = config.get('hhax.retryDelayMs');
 
   let lastContext = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
-    const outcome = await attemptRequest({operation, body});
+    const outcome = await attemptRequest({operation, body, credentials});
 
     // ── Layer 1: transport ──────────────────────────────────────────────────
     if (outcome.transportError) {

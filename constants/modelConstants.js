@@ -45,6 +45,7 @@ module.exports = {
     NOTIFICATION: 'Notification',
     AUDIT_LOG: 'AuditLog',
     HHA_VISIT: 'HhaVisit',
+    HHA_CREDENTIAL: 'OrganizationHhaCredential',
     HHA_SYNC_RUN: 'HhaSyncRun',
     HHA_SYNC_EXCEPTION: 'HhaSyncException',
     HHA_SYNC_CHANGE: 'HhaSyncChange',

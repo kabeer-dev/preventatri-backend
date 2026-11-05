@@ -15,6 +15,7 @@ const {
   buildAuditSummary,
   buildWhatChanged,
   formatAuditRoleLabel,
+  isUuidLike,
   parseAuditDevice,
   resolveAuditOrigin,
 } = require('./auditLogFormatUtils');
@@ -134,6 +135,12 @@ const batchFetchSubjectRecordsByModel = async ({idsByModel}) => {
     models.map((model) => {
       const findArgs = {model, query: {id: {in: idsByModel[model]}}};
 
+      // Organization has no organizationId column (it IS the org), so the
+      // ACL org-scoping would add an unknown filter; the id list is the scope.
+      if (model === modelConstants.MODELS.ORGANIZATION) {
+        findArgs.options = {bypassExtraQueries: true};
+      }
+
       if (SUBJECT_RECORD_INCLUDES[model]) {
         findArgs.fieldsInclusion = {include: SUBJECT_RECORD_INCLUDES[model]};
       }
@@ -174,7 +181,8 @@ module.exports.enrichAuditLogsPage = async ({logs}) => {
     const {resourceType} = describedByLogId[log.id];
     const model = MODEL_BY_RESOURCE_TYPE[resourceType];
 
-    if (!model || !log.resourceId) return map;
+    // Older rows may hold a non-uuid resourceId; a uuid column would reject it
+    if (!model || !isUuidLike({value: log.resourceId})) return map;
 
     map[model] = map[model] || [];
     map[model].push(log.resourceId);

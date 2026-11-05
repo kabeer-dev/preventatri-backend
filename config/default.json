@@ -45,12 +45,11 @@
     "username": "admin",
     "password": ""
   },
+  "encryption": {
+    "key": ""
+  },
   "hhax": {
     "baseUrl": "https://app2sandbox.hhaexchange.com/Integration/ENT/V1.8/ws.asmx",
-    "appName": "",
-    "appSecret": "",
-    "appKey": "",
-    "organizationId": "",
     "requestTimeoutMs": 30000,
     "maxRetries": 3,
     "retryDelayMs": 2000,
@@ -61,6 +60,7 @@
     "maxCursorWindows": 60,
     "syncCron": "0 4 * * *",
     "syncTimezone": "America/New_York",
-    "syncLockTtlMs": 300000
+    "syncLockTtlMs": 300000,
+    "syncWorkerConcurrency": 3
   }
 }

@@ -165,6 +165,7 @@ model Organization {
   notifications                     Notification[]
   hhaVisits                         HhaVisit[]
   hhaSyncRuns                       HhaSyncRun[]
+  hhaCredential                     OrganizationHhaCredential?
   hhaSyncExceptions                 HhaSyncException[]
   hhaSyncChanges                    HhaSyncChange[]
   patientHhaCoordinators            PatientHhaCoordinator[]
@@ -711,6 +712,28 @@ model HhaVisit {
   @@index([organizationId, visitType], map: "idx_hha_visits_org_visit_type")
   @@index([organizationId, hhaPatientId], map: "idx_hha_visits_org_patient")
   @@map("hha_visits")
+}
+
+// The organization's own HHAeXchange integration credentials. The secret and
+// key are stored encrypted (utils/encryptionUtils.js) and never leave the
+// server; only the app name is readable. isConnected turns true once the
+// credentials were checked against HHAeXchange.
+model OrganizationHhaCredential {
+  id                 String    @id @default(uuid())
+  organizationId     String    @unique @map("organization_id")
+  appName            String    @map("app_name") @db.VarChar(255)
+  encryptedAppSecret String    @map("encrypted_app_secret") @db.Text
+  encryptedAppKey    String    @map("encrypted_app_key") @db.Text
+  isConnected        Boolean   @default(false) @map("is_connected")
+  lastVerifiedAt     DateTime? @map("last_verified_at") @db.Timestamptz(3)
+  lastError          String?   @map("last_error") @db.VarChar(255)
+  connectedByUserId  String?   @map("connected_by_user_id")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_hha_credentials")
 }
 
 // One HHAeXchange sync run. id is the run's queue/cron runId. Statuses and

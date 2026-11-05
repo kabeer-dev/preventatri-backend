@@ -66,12 +66,11 @@
       }
     }
   },
+  "encryption": {
+    "key": "ENCRYPTION_KEY"
+  },
   "hhax": {
-    "appName": "HHAX_APP_NAME",
-    "appSecret": "HHAX_APP_SECRET",
-    "appKey": "HHAX_APP_KEY",
     "baseUrl": "HHAX_BASE_URL",
-    "organizationId": "HHAX_ORGANIZATION_ID",
     "visitLookbackDays": {
       "__name": "HHAX_VISIT_LOOKBACK_DAYS",
       "__format": "number"

@@ -37,9 +37,10 @@ const {PrismaFactory} = require('../factories');
 const {redisConnection} = require('../lib/redis');
 const logger = require('../middleware/loggerMiddleware');
 
-// UUID v4 pattern for extracting resource IDs from URL paths
+// UUID pattern (any version) for extracting resource IDs from URL paths
 const UUID_REGEX =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const UUID_ONLY_REGEX = new RegExp(`^${UUID_REGEX.source}$`, 'i');
 
 const {CREATE, READ, UPDATE, DELETE, LOGIN, INVITE} = AUDIT_OPERATIONS;
 
@@ -99,11 +100,12 @@ const extractResourceSegment = ({path}) => {
  *       /api/v1/nurses → null
  */
 const extractResourceId = ({path}) => {
-  const segments = path.split('/').filter(Boolean);
+  // Query strings never hold the resource id: /assignees?patientId=<uuid>
+  const segments = path.split('?')[0].split('/').filter(Boolean);
 
   // Look for a UUID segment (typically the segment after the resource name)
   for (const segment of segments) {
-    if (UUID_REGEX.test(segment)) return segment;
+    if (UUID_ONLY_REGEX.test(segment)) return segment;
   }
 
   return null;

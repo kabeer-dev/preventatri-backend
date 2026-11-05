@@ -3,14 +3,118 @@ const {AVAILABLE_TIME_ZONES} = require('../constants/organizationsConstants');
 const {
   GeneralErrorsFactories,
   GeneralResponsesFactories,
+  HhaExchangeErrorsFactories,
 } = require('../factories');
 
 const {
   OrganizationsServices,
   EscalationPolicyServices,
+  HhaCredentialsServices,
+  HhaExchangeServices,
 } = require('../services');
 
+// What a screen may know about the organization's HHAeXchange connection. The
+// secret and key are never part of it.
+const toHhaConnection = ({credential}) => ({
+  isConnected: Boolean(credential?.isConnected),
+  appName: credential?.appName || null,
+  lastVerifiedAt: credential?.lastVerifiedAt || null,
+  lastError: credential?.lastError || null,
+});
+
 module.exports = class OrganizationsController {
+  /**
+   * Whether the organization is connected to HHAeXchange. The secret and key
+   * are never returned.
+   * GET /organizations/hha-credentials
+   */
+  static async getHhaCredentials(req, res, next) {
+    const {organizationId} = req.extra.jwtToken.user.currentActiveOrganization;
+
+    const {success, doc, error} = await HhaCredentialsServices.getConnection({
+      organizationId,
+    });
+
+    if (!success) throw error;
+
+    return GeneralResponsesFactories.dataRetrievedSuccessfully({
+      data: toHhaConnection({credential: doc}),
+      key: 'hhaCredentials',
+    });
+  }
+
+  /**
+   * Connect the organization to HHAeXchange. The credentials are checked with
+   * HHAeXchange first and saved only if it accepts them, so a wrong entry never
+   * replaces a working connection.
+   * PUT /organizations/hha-credentials
+   */
+  static async saveHhaCredentials(req, res, next) {
+    const {appName, appSecret, appKey} = req.body;
+
+    const {organizationId} = req.extra.jwtToken.user.currentActiveOrganization;
+
+    const {success: isAccepted, isUnreachable} =
+      await HhaExchangeServices.verifyCredentials({
+        credentials: {appName, appSecret, appKey},
+      });
+
+    // An outage is not a refusal: the admin is not told the credentials are wrong.
+    if (isUnreachable) throw HhaExchangeErrorsFactories.unreachableErr();
+
+    if (!isAccepted) throw HhaExchangeErrorsFactories.credentialsRejectedErr();
+
+    const {success, error} = await HhaCredentialsServices.saveCredentials({
+      organizationId,
+      appName,
+      appSecret,
+      appKey,
+      connectedByUserId: req.extra.jwtToken.user.id,
+      isConnected: true,
+    });
+
+    if (!success) throw error;
+
+    // The audit entry is the organization row, which does not change, so say
+    // what was connected.
+    if (req.extra.audit) {
+      req.extra.audit.afterDetails = {appName, isConnected: true};
+    }
+
+    const {
+      success: isRead,
+      doc,
+      error: readError,
+    } = await HhaCredentialsServices.getConnection({organizationId});
+
+    if (!isRead) throw readError;
+
+    return GeneralResponsesFactories.dataUpdatedSuccessfully({
+      data: toHhaConnection({credential: doc}),
+      key: 'hhaCredentials',
+    });
+  }
+
+  /**
+   * Disconnect the organization from HHAeXchange. Its stored credentials are
+   * removed and the sync stops for it.
+   * DELETE /organizations/hha-credentials
+   */
+  static async disconnectHhaCredentials(req, res, next) {
+    const {organizationId} = req.extra.jwtToken.user.currentActiveOrganization;
+
+    const {success, error} = await HhaCredentialsServices.disconnect({
+      organizationId,
+    });
+
+    if (!success) throw error;
+
+    return GeneralResponsesFactories.dataDeletedSuccessfully({
+      data: toHhaConnection({credential: null}),
+      key: 'hhaCredentials',
+    });
+  }
+
   /**
    * Get the current organization's working hours
    * GET /organizations/working-hours

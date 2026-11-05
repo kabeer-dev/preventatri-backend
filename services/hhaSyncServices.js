@@ -39,8 +39,8 @@ const HhaVisitSyncServices = require('./hhaVisitSyncServices');
 
 const {
   HHAX_SYNC_TRIGGERS,
-  HHAX_SYNC_LOCK_KEY,
-  HHAX_SYNC_QUEUED_KEY,
+  HHAX_SYNC_LOCK_KEY_PREFIX,
+  HHAX_SYNC_QUEUED_KEY_PREFIX,
   HHAX_SYNC_QUEUED_TTL_MS,
   HHAX_SYNC_RUN_ERROR_IDS,
   HHAX_SYNC_RESOURCES,
@@ -55,13 +55,16 @@ const {
 } = require('../utils/dateUtils');
 
 const {
-  getHhaOrganizationId,
-} = require('../utils/hhaExchange/hhaOrganizationUtils');
-
-const {
   buildSummary,
   buildRunContext,
 } = require('../utils/hhaExchange/syncRunUtils');
+
+// One lock and one queued slot per organization.
+const getLockKey = ({organizationId}) =>
+  `${HHAX_SYNC_LOCK_KEY_PREFIX}${organizationId}`;
+
+const getQueuedKey = ({organizationId}) =>
+  `${HHAX_SYNC_QUEUED_KEY_PREFIX}${organizationId}`;
 
 /**
  * Compare-and-delete: drop the lock only if this run still owns it. Lua so the
@@ -86,13 +89,13 @@ return 0
  * Give the queued-slot marker the lock's lifetime. On its own fixed TTL it
  * outlived a dead run's lock and kept the Sync button blocked for minutes.
  */
-const alignQueuedSlot = async ({runId, ttlMs}) => {
+const alignQueuedSlot = async ({organizationId, runId, ttlMs}) => {
   if (!runId) return;
 
   await redisConnection.eval(
     RENEW_LOCK_IF_OWNED,
     1,
-    HHAX_SYNC_QUEUED_KEY,
+    getQueuedKey({organizationId}),
     runId,
     ttlMs
   );
@@ -109,7 +112,7 @@ const alignQueuedSlot = async ({runId, ttlMs}) => {
  * @returns {{timer: Object, state: {ownsLock: boolean}}} `state` is read by
  *   runResources between resources; see the abort there.
  */
-const startLockHeartbeat = ({lockToken, runId, ttlMs}) => {
+const startLockHeartbeat = ({organizationId, lockToken, runId, ttlMs}) => {
   const state = {ownsLock: true};
 
   const timer = setInterval(
@@ -118,12 +121,12 @@ const startLockHeartbeat = ({lockToken, runId, ttlMs}) => {
         const renewed = await redisConnection.eval(
           RENEW_LOCK_IF_OWNED,
           1,
-          HHAX_SYNC_LOCK_KEY,
+          getLockKey({organizationId}),
           lockToken,
           ttlMs
         );
 
-        if (renewed) await alignQueuedSlot({runId, ttlMs});
+        if (renewed) await alignQueuedSlot({organizationId, runId, ttlMs});
 
         // 0 is definitive rather than transient: the key expired or another run
         // already owns it, so mutual exclusion has lapsed and renewing again
@@ -133,7 +136,10 @@ const startLockHeartbeat = ({lockToken, runId, ttlMs}) => {
 
           clearInterval(timer);
 
-          logger.error('HHAeXchange sync lost its run lock', {lockToken});
+          logger.error('HHAeXchange sync lost its run lock', {
+            organizationId,
+            lockToken,
+          });
         }
       } catch (error) {
         // Unlike a 0, an unreachable Redis says nothing about ownership, and
@@ -301,8 +307,8 @@ module.exports = class HhaSyncServices {
    *
    * @param {Object} params
    * @param {string} params.trigger - An HHAX_SYNC_TRIGGERS value.
-   * @param {string} [params.organizationId] - From the caller's JWT on a manual
-   *   run. Omitted by the scheduler, which resolves the single admin's org.
+   * @param {string} params.organizationId - The organization to sync: the
+   *   caller's on a manual run, each connected organization's on the nightly run.
    * @param {string} [params.runId] - The run's id: the queued job's, or the
    *   cron's. Releasing the queued slot is compare-and-delete, so the cron's
    *   id never frees a slot it did not claim.
@@ -311,11 +317,25 @@ module.exports = class HhaSyncServices {
    */
   static async runSync({
     trigger = HHAX_SYNC_TRIGGERS.SCHEDULED.value,
-    organizationId = null,
+    organizationId,
     runId = null,
     requestedByUserId = null,
   }) {
     const historyRunId = runId || randomUUID();
+
+    // Nothing is imported into a guessed organization.
+    if (!organizationId) {
+      logger.error('HHAeXchange sync has no organization to import into');
+
+      await HhaSyncServices.releaseQueuedSlot({organizationId, runId});
+
+      return {
+        success: false,
+        summaries: null,
+        error: null,
+        organizationId: null,
+      };
+    }
 
     const lockToken = `${trigger}:${getEpochMillis()}`;
 
@@ -327,7 +347,7 @@ module.exports = class HhaSyncServices {
     const syncLockTtlMs = config.get('hhax.syncLockTtlMs');
 
     const lockAcquired = await redisConnection.set(
-      HHAX_SYNC_LOCK_KEY,
+      getLockKey({organizationId}),
       lockToken,
       'PX',
       syncLockTtlMs,
@@ -337,7 +357,7 @@ module.exports = class HhaSyncServices {
     if (!lockAcquired) {
       // No lock means no run, so free the slot instead of blocking the button
       // for its whole TTL. Happens when the cron takes the lock first.
-      await HhaSyncServices.releaseQueuedSlot({runId});
+      await HhaSyncServices.releaseQueuedSlot({organizationId, runId});
 
       return {
         success: false,
@@ -347,35 +367,20 @@ module.exports = class HhaSyncServices {
       };
     }
 
-    await alignQueuedSlot({runId, ttlMs: syncLockTtlMs});
+    await alignQueuedSlot({organizationId, runId, ttlMs: syncLockTtlMs});
 
     // Cleared in the same finally that releases the lock.
     const lockHeartbeat = startLockHeartbeat({
+      organizationId,
       lockToken,
       runId,
       ttlMs: syncLockTtlMs,
     });
 
     try {
-      // The credentials are one global set, so the sync belongs to the one
-      // organization the integration is connected to. With none named, nothing
-      // is imported into a guessed organization.
-      const resolvedOrganizationId = organizationId || getHhaOrganizationId();
-
-      if (!resolvedOrganizationId) {
-        logger.error('HHAeXchange sync has no organization to import into');
-
-        return {
-          success: false,
-          summaries: null,
-          error: null,
-          organizationId: null,
-        };
-      }
-
       await HhaSyncHistoryServices.startRun({
         runId: historyRunId,
-        organizationId: resolvedOrganizationId,
+        organizationId,
         trigger,
         requestedByUserId,
       });
@@ -388,7 +393,7 @@ module.exports = class HhaSyncServices {
         outcome = await runResources({
           runId: historyRunId,
           trigger,
-          organizationId: resolvedOrganizationId,
+          organizationId,
           isLockHeld: () => lockHeartbeat.state.ownsLock,
         });
       } catch (crash) {
@@ -408,9 +413,7 @@ module.exports = class HhaSyncServices {
       // The accept hook stands down while a run holds the lock, so people who
       // accepted an invitation during this run get their patients here.
       if (lockHeartbeat.state.ownsLock) {
-        await HhaPatientLinkSyncServices.applyPendingLinks({
-          organizationId: resolvedOrganizationId,
-        });
+        await HhaPatientLinkSyncServices.applyPendingLinks({organizationId});
       }
 
       await HhaSyncHistoryServices.finishRun({
@@ -419,15 +422,7 @@ module.exports = class HhaSyncServices {
         error,
       });
 
-      // The RESOLVED org id is returned, not the one that was passed in. The
-      // scheduled run supplies none and resolves it from the single admin, so
-      // without this the reporter would have nothing to scope the admin lookup to.
-      return {
-        success,
-        summaries,
-        error,
-        organizationId: resolvedOrganizationId,
-      };
+      return {success, summaries, error, organizationId};
     } finally {
       clearInterval(lockHeartbeat.timer);
 
@@ -439,18 +434,18 @@ module.exports = class HhaSyncServices {
       await redisConnection.eval(
         RELEASE_LOCK_IF_OWNED,
         1,
-        HHAX_SYNC_LOCK_KEY,
+        getLockKey({organizationId}),
         lockToken
       );
 
       // Held for the whole run, so a crash anywhere frees both guards together.
-      await HhaSyncServices.releaseQueuedSlot({runId});
+      await HhaSyncServices.releaseQueuedSlot({organizationId, runId});
     }
   }
 
-  /** Whether a run currently holds the lock. Used for a clean 409. */
-  static async isSyncRunning() {
-    const token = await redisConnection.get(HHAX_SYNC_LOCK_KEY);
+  /** Whether a run holds the organization's lock. Used for a clean 409. */
+  static async isSyncRunning({organizationId}) {
+    const token = await redisConnection.get(getLockKey({organizationId}));
 
     return Boolean(token);
   }
@@ -464,9 +459,9 @@ module.exports = class HhaSyncServices {
    *
    * @returns {Promise<boolean>} true when this caller may enqueue.
    */
-  static async claimQueuedSlot({runId}) {
+  static async claimQueuedSlot({organizationId, runId}) {
     const claimed = await redisConnection.set(
-      HHAX_SYNC_QUEUED_KEY,
+      getQueuedKey({organizationId}),
       runId,
       'PX',
       HHAX_SYNC_QUEUED_TTL_MS,
@@ -477,13 +472,13 @@ module.exports = class HhaSyncServices {
   }
 
   /** Compare-and-delete so a lapsed-then-reclaimed slot is not freed twice. */
-  static async releaseQueuedSlot({runId}) {
+  static async releaseQueuedSlot({organizationId, runId}) {
     if (!runId) return;
 
     await redisConnection.eval(
       RELEASE_LOCK_IF_OWNED,
       1,
-      HHAX_SYNC_QUEUED_KEY,
+      getQueuedKey({organizationId}),
       runId
     );
   }
@@ -492,10 +487,10 @@ module.exports = class HhaSyncServices {
    * Queued or in flight. Backs the status endpoint so a reload mid-run
    * restores the button instead of offering one that 409s.
    */
-  static async isSyncPendingOrRunning() {
+  static async isSyncPendingOrRunning({organizationId}) {
     const [lockToken, queuedToken] = await Promise.all([
-      redisConnection.get(HHAX_SYNC_LOCK_KEY),
-      redisConnection.get(HHAX_SYNC_QUEUED_KEY),
+      redisConnection.get(getLockKey({organizationId})),
+      redisConnection.get(getQueuedKey({organizationId})),
     ]);
 
     return Boolean(lockToken || queuedToken);

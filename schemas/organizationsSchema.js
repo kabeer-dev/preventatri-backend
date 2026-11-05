@@ -35,6 +35,23 @@ module.exports.validateUpdateTimeZoneRequest = ({data}) => {
   return validatorUtils.validate({schema: updateSchema, data});
 };
 
+// 🔄 Connect HHAeXchange — the organization's own credentials
+module.exports.validateSaveHhaCredentialsRequest = ({data}) => {
+  const credentialField = ({label}) =>
+    Yup.string()
+      .trim()
+      .max(255, `${label} must be at most 255 characters`)
+      .required(`${label} is required`);
+
+  const saveSchema = Yup.object().shape({
+    appName: credentialField({label: 'appName'}),
+    appSecret: credentialField({label: 'appSecret'}),
+    appKey: credentialField({label: 'appKey'}),
+  });
+
+  return validatorUtils.validate({schema: saveSchema, data});
+};
+
 // 🔄 Update Escalation Policy — :flag param
 module.exports.validateEscalationPolicyFlagParams = ({data}) => {
   const paramsSchema = Yup.object().shape({
