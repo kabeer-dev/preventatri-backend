@@ -5,8 +5,8 @@ const {validatorUtils, safeMerge, dateUtils} = require('../utils');
 
 const caregiversSchema = require('./caregiversSchema');
 const caseManagersSchema = require('./caseManagersSchema');
-
 const {commonListFiltersSchema} = require('./commonEntityValidations');
+const commonOrganizationValidations = require('./commonOrganizationValidations');
 
 const {
   commonSchema,
@@ -34,6 +34,7 @@ module.exports.validateCreateRequest = ({data: user}) => {
           .min(2, 'Organization name must be at least 2 characters')
           .max(120, 'Organization name must be at most 120 characters')
           .required('Organization name is required'),
+        timeZone: commonOrganizationValidations.timeZoneSchema(),
       },
     })
   );

@@ -65,7 +65,7 @@ module.exports.workingHoursSchema = () => {
 /**
  * The organization's selected time zone — one of the 6 supported USA time
  * zones (see AVAILABLE_TIME_ZONES in organizationsConstants).
- * Used in: validateUpdateTimeZoneRequest
+ * Used in: the register (signup) request
  */
 module.exports.timeZoneSchema = () =>
   Yup.string()

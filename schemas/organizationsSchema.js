@@ -26,15 +26,6 @@ module.exports.validateUpdateWorkingHoursRequest = ({data}) => {
   return validatorUtils.validate({schema: updateSchema, data});
 };
 
-// 🔄 Update Organization Time Zone
-module.exports.validateUpdateTimeZoneRequest = ({data}) => {
-  const updateSchema = Yup.object().shape({
-    timeZone: commonOrganizationValidations.timeZoneSchema(),
-  });
-
-  return validatorUtils.validate({schema: updateSchema, data});
-};
-
 // 🔄 Connect HHAeXchange — the organization's own credentials
 module.exports.validateSaveHhaCredentialsRequest = ({data}) => {
   const credentialField = ({label}) =>

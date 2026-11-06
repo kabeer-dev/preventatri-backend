@@ -58,35 +58,6 @@ router.patch(
   catchAsyncMiddleware(OrganizationsController.updateWorkingHours)
 );
 
-// 📖 Get current organization's time zone
-// GET /organizations/time-zone
-// Access: Admin, Nurse, Case Manager
-router.get(
-  '/time-zone',
-  aclAccessMiddleware({
-    entityToCheck: ORGANIZATION_ENTITY,
-    permissionKey: CRUD_PERMISSIONS.VIEW,
-    isAdminAction: true,
-  }),
-  catchAsyncMiddleware(OrganizationsController.getTimeZone)
-);
-
-// 🔄 Update current organization's time zone
-// PATCH /organizations/time-zone
-// Access: Admins only
-router.patch(
-  '/time-zone',
-  validatorMiddleware({
-    validateFunction: organizationsSchema.validateUpdateTimeZoneRequest,
-  }),
-  aclAccessMiddleware({
-    entityToCheck: ORGANIZATION_ENTITY,
-    permissionKey: CRUD_PERMISSIONS.UPDATE,
-    isAdminAction: true,
-  }),
-  catchAsyncMiddleware(OrganizationsController.updateTimeZone)
-);
-
 // 📖 Whether the current organization is connected to HHAeXchange
 // GET /organizations/hha-credentials
 // Access: Admins only. The secret and key are never returned.

@@ -231,7 +231,7 @@ const loadOrganizationInvitationOrThrow = async ({req}) => {
 
 module.exports = class UsersController {
   static async createUser(req, res, next) {
-    const {organizationName, ...data} = req.body;
+    const {organizationName, timeZone, ...data} = req.body;
 
     // A new account starts without a main organization, which the unique email
     // index does not compare, so an email already in use is refused here.
@@ -248,6 +248,7 @@ module.exports = class UsersController {
     const user = await UsersControllerHelpers.addUserToSystem({
       dataToCreateOrUpdate: data,
       organizationName,
+      timeZone,
       role: usersConstants.SYSTEM_ROLES.admin.value,
     });
 

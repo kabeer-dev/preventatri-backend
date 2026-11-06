@@ -71,23 +71,4 @@ module.exports = class OrganizationsServices {
       return {success: false, doc: null, error};
     }
   }
-
-  /**
-   * Persist the organization's selected time zone.
-   */
-  static async updateOrganizationTimeZone({id, timeZone, tx}) {
-    try {
-      const {success, doc, error} = await PrismaFactory.findOneAndUpdate({
-        model: modelConstants.MODELS.ORGANIZATION,
-        query: {id},
-        data: {timeZone},
-        tx,
-        options: {bypassExtraQueries: true},
-      });
-
-      return {success, doc, error};
-    } catch (error) {
-      return {success: false, doc: null, error};
-    }
-  }
 };

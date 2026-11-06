@@ -852,6 +852,20 @@ module.exports = {
             description: 'Name of the new organization (2 to 120 characters)',
             example: 'Acme Home Care',
           },
+          timeZone: {
+            type: 'string',
+            description:
+              'Time zone of the new organization. It is set once here and cannot be changed later.',
+            enum: [
+              'EASTERN',
+              'CENTRAL',
+              'MOUNTAIN',
+              'PACIFIC',
+              'ALASKA',
+              'HAWAII',
+            ],
+            example: 'EASTERN',
+          },
         },
         required: [
           'firstName',
@@ -860,6 +874,7 @@ module.exports = {
           'phoneNo',
           'password',
           'organizationName',
+          'timeZone',
         ],
       },
       responses: {

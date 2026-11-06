@@ -48,29 +48,6 @@ const hhaConnectionSchema = {
   },
 };
 
-const timeZoneSchema = {
-  type: 'object',
-  description:
-    "The organization's selected time zone, one of the 6 supported USA time zones. Defaults to Eastern on organization creation.",
-  properties: {
-    key: {
-      type: 'string',
-      description: 'The stored enum value',
-      example: 'EASTERN',
-    },
-    value: {
-      type: 'string',
-      description: 'IANA time zone identifier',
-      example: 'America/New_York',
-    },
-    label: {
-      type: 'string',
-      description: 'Display label',
-      example: 'Eastern Time (US & Canada)',
-    },
-  },
-};
-
 const escalationPolicyStepSchema = {
   type: 'object',
   properties: {
@@ -332,85 +309,6 @@ module.exports = {
             type: 'object',
             properties: {
               workingHours: workingHoursSchema,
-            },
-          },
-        },
-        400: {
-          description: 'Bad Request - Validation error',
-        },
-        401: {
-          description: 'Unauthorized - Invalid or missing token',
-        },
-        403: {
-          description: 'Forbidden - Insufficient permissions',
-        },
-        404: {
-          description: 'Not Found - Organization not found',
-        },
-      },
-    }),
-  },
-
-  '/api/v1/organizations/time-zone': {
-    get: createSwaggerDocs({
-      tags: ['Organizations'],
-      summary: "Get current organization's time zone",
-      description:
-        "Retrieves the selected time zone for the caller's current active organization.",
-      responses: {
-        200: {
-          description: 'Time zone retrieved successfully',
-          message: {
-            description: 'A message describing the result',
-            example: 'Data retrieved successfully',
-          },
-          body: {
-            description: "Organization's time zone",
-            type: 'object',
-            properties: {
-              timeZone: timeZoneSchema,
-            },
-          },
-        },
-        401: {
-          description: 'Unauthorized - Invalid or missing token',
-        },
-        403: {
-          description: 'Forbidden - Insufficient permissions',
-        },
-        404: {
-          description: 'Not Found - Organization not found',
-        },
-      },
-    }),
-
-    patch: createSwaggerDocs({
-      tags: ['Organizations'],
-      summary: "Update current organization's time zone",
-      description:
-        "Updates the selected time zone for the caller's current active organization. (Admin only)",
-      requestBody: {
-        fields: {
-          timeZone: {
-            type: 'string',
-            description: 'One of the 6 supported USA time zone keys',
-            example: 'EASTERN',
-          },
-        },
-        required: ['timeZone'],
-      },
-      responses: {
-        200: {
-          description: 'Time zone updated successfully',
-          message: {
-            description: 'A message describing the result',
-            example: 'Data updated successfully',
-          },
-          body: {
-            description: "Organization's time zone after the update",
-            type: 'object',
-            properties: {
-              timeZone: timeZoneSchema,
             },
           },
         },

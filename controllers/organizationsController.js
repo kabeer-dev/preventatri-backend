@@ -1,5 +1,3 @@
-const {AVAILABLE_TIME_ZONES} = require('../constants/organizationsConstants');
-
 const {
   GeneralErrorsFactories,
   GeneralResponsesFactories,
@@ -175,66 +173,6 @@ module.exports = class OrganizationsController {
     return GeneralResponsesFactories.dataUpdatedSuccessfully({
       data: updatedOrganization.workingHours,
       key: 'workingHours',
-    });
-  }
-
-  /**
-   * Get the current organization's time zone
-   * GET /organizations/time-zone
-   */
-  static async getTimeZone(req, res, next) {
-    const {organizationId} = req.extra.jwtToken.user.currentActiveOrganization;
-
-    const {success, doc: organization} =
-      await OrganizationsServices.getOrganizationById({id: organizationId});
-
-    if (!success || !organization) {
-      throw GeneralErrorsFactories.notFoundErr({
-        customMessage: 'Organization not found',
-      });
-    }
-
-    return GeneralResponsesFactories.dataRetrievedSuccessfully({
-      data: AVAILABLE_TIME_ZONES[organization.timeZone.toLowerCase()],
-      key: 'timeZone',
-    });
-  }
-
-  /**
-   * Update the current organization's time zone
-   * PATCH /organizations/time-zone
-   */
-  static async updateTimeZone(req, res, next) {
-    const {timeZone} = req.body;
-    const {organizationId} = req.extra.jwtToken.user.currentActiveOrganization;
-
-    const {success: getSuccess, doc: organization} =
-      await OrganizationsServices.getOrganizationById({id: organizationId});
-
-    if (!getSuccess || !organization) {
-      throw GeneralErrorsFactories.notFoundErr({
-        customMessage: 'Organization not found',
-      });
-    }
-
-    const {
-      success,
-      doc: updatedOrganization,
-      error,
-    } = await OrganizationsServices.updateOrganizationTimeZone({
-      id: organizationId,
-      timeZone,
-    });
-
-    if (!success || error) {
-      throw GeneralErrorsFactories.internalErr({
-        customMessage: 'Failed to update time zone',
-      });
-    }
-
-    return GeneralResponsesFactories.dataUpdatedSuccessfully({
-      data: AVAILABLE_TIME_ZONES[updatedOrganization.timeZone.toLowerCase()],
-      key: 'timeZone',
     });
   }
 

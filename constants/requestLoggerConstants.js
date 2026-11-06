@@ -206,12 +206,6 @@ const AUDIT_ROUTE_CONFIG = {
     model: MODELS.ORGANIZATION,
     resourceIsOrganization: true,
   },
-  'organizations/time-zone': {
-    resourceType: 'timeZone',
-    resource: 'Time Zone',
-    model: MODELS.ORGANIZATION,
-    resourceIsOrganization: true,
-  },
 
   // Logged against the organization: the credentials row has no id in the URL,
   // and its secret and key must never reach a snapshot.
